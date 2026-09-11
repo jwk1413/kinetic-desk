@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const esbuild = require('esbuild');
-function bundle(path) { return esbuild.buildSync({entryPoints:[path],bundle:true,platform:'node',format:'cjs',write:false,external:['electron']}).outputFiles[0].text; }
+function bundle(path) { return esbuild.buildSync({entryPoints:[path],bundle:true,platform:'node',format:'cjs',write:false,external:['electron'],define:{__KINETIC_DEV_TOOLS__:'true'}}).outputFiles[0].text; }
 function load(path, extra={}) { const module={exports:{}};vm.runInNewContext(bundle(path),{module,exports:module.exports,require,performance,console,...extra});return module.exports; }
 const sticks=load('src/renderer/src/physics/swinging-sticks.ts');
 for(const sign of [-1,1]) {
@@ -21,7 +21,7 @@ p.start();p.add('drawMs',5);p.draw();assert.equal(p.stop().draws,1);p.draw();ass
 const store=load('src/main/store.ts',{require:(id)=>id==='electron'?{app:{}}:require(id)});
 for(const [value,expected] of [[0,1],[4,3],[1.6,2],[NaN,2]])assert.equal(store.clampPhysics({bobCount:value}).bobCount,expected);
 (async()=>{
- const result=await esbuild.build({entryPoints:['src/renderer/src/main.ts'],bundle:true,platform:'browser',format:'iife',write:false,plugins:[{name:'scene-stubs',setup(build){
+ const result=await esbuild.build({entryPoints:['src/renderer/src/main.ts'],bundle:true,platform:'browser',format:'iife',write:false,define:{__KINETIC_DEV_TOOLS__:'true'},plugins:[{name:'scene-stubs',setup(build){
  build.onResolve({filter:/objects\/double-pendulum$/},()=>({path:'object',namespace:'stub'}));
  build.onResolve({filter:/render\/shapes$/},()=>({path:'shapes',namespace:'stub'}));
  build.onLoad({filter:/.*/,namespace:'stub'},args=>({contents:args.path==='shapes'?'export const invalidateSizeCaches=()=>{}; export const prepareShadowBuffer=()=>{};':`export class DoublePendulumObject { origin={x:350,y:360}; anchorInfo(){return{pivotX:350,pivotY:360,reach:80,dragging:false}} layout(){} applyPhysics(){} consumeWindowShift(){return {x:0,y:0}} dispose(){} hitTest(){return null} update(dt){globalThis.simTime+=dt} draw(){globalThis.draws++} }`,loader:'js'}));

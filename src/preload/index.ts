@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
-import { IpcChannel, type DeskApi, type DisplayLayout, type ObjectAnchor, type WindowOrigin } from "../shared/ipc";
-import type { AppState, MotionMode, PhysicsSettings } from "../shared/types";
+import { IpcChannel, type DeskApi, type ObjectAnchor, type WindowOrigin } from "../shared/ipc";
+import type { AppState } from "../shared/types";
 
 const api: DeskApi = {
   ready() {
@@ -12,32 +12,11 @@ const api: DeskApi = {
   setClickThrough(ignore: boolean) {
     ipcRenderer.send(IpcChannel.setClickThrough, ignore);
   },
-  moveWindowBy(dx: number, dy: number, keepInReach = true) {
-    ipcRenderer.send(IpcChannel.moveWindowBy, dx, dy, keepInReach);
-  },
   setObjectAnchor(anchor: ObjectAnchor) {
     ipcRenderer.send(IpcChannel.setObjectAnchor, anchor);
   },
   dragObjectTo(x: number, y: number) {
     ipcRenderer.send(IpcChannel.dragObjectTo, x, y);
-  },
-  updatePhysics(physics: Partial<PhysicsSettings>) {
-    ipcRenderer.send(IpcChannel.updatePhysics, physics);
-  },
-  setMotionMode(mode: MotionMode) {
-    ipcRenderer.send(IpcChannel.setMotionMode, mode);
-  },
-  setTrails(enabled: boolean) {
-    ipcRenderer.send(IpcChannel.setTrails, enabled);
-  },
-  setPivotInertia(enabled: boolean) {
-    ipcRenderer.send(IpcChannel.setPivotInertia, enabled);
-  },
-  resetPhysics() {
-    ipcRenderer.send(IpcChannel.resetPhysics);
-  },
-  resetObject() {
-    ipcRenderer.send(IpcChannel.resetObject);
   },
   getWindowBounds() {
     return ipcRenderer.invoke(IpcChannel.getWindowBounds) as Promise<WindowOrigin>;
@@ -48,16 +27,6 @@ const api: DeskApi = {
     };
     ipcRenderer.on(IpcChannel.windowBounds, listener);
     return () => ipcRenderer.removeListener(IpcChannel.windowBounds, listener);
-  },
-  getDisplayLayout() {
-    return ipcRenderer.invoke(IpcChannel.getDisplayLayout) as Promise<DisplayLayout>;
-  },
-  onDisplayLayout(callback: (layout: DisplayLayout) => void) {
-    const listener = (_event: Electron.IpcRendererEvent, layout: DisplayLayout) => {
-      callback(layout);
-    };
-    ipcRenderer.on(IpcChannel.displayLayout, listener);
-    return () => ipcRenderer.removeListener(IpcChannel.displayLayout, listener);
   },
   onState(callback: (state: AppState) => void) {
     const listener = (_event: Electron.IpcRendererEvent, next: AppState) => {

@@ -7,6 +7,7 @@ import {
   kineticEnergy,
   isFiniteState,
   downwardReach,
+  PENDULUM,
   behindSpan,
   jointSpan,
   pendulumCount,
@@ -96,7 +97,6 @@ export class DoublePendulumObject implements DeskObject {
   private lastGood: PendulumState | null = null;
   private stickStartKick = true;
   private stickGrab: StickGrab | null = null;
-  private windowShift = { x: 0, y: 0 };
   private windowOrigin = { x: 0, y: 0 };
 
   layout(width: number, height: number): void {
@@ -178,12 +178,6 @@ export class DoublePendulumObject implements DeskObject {
   requiredCanvas(): { width: number; height: number } {
     const inset = this.contentInsets();
     return { width: inset.left + inset.right, height: inset.top + inset.bottom };
-  }
-
-  consumeWindowShift(): { x: number; y: number } {
-    const shift = this.windowShift;
-    this.windowShift = { x: 0, y: 0 };
-    return shift;
   }
 
   reset(): void {
@@ -374,12 +368,9 @@ export class DoublePendulumObject implements DeskObject {
 
   private integrate(dt: number, env: SimEnv, accel: PivotAccel, locked: LockedJoint[]): void {
     const sticks = this.params.model === "compound";
-    const physics = this.physics;
     const damping = sticks
       ? (env.motionMode === "natural" ? STICK_NATURAL_DAMPING : STICK_DRIVEN_DAMPING)
-      : env.motionMode === "natural"
-        ? (physics?.naturalDamping ?? 0.014)
-        : (physics?.drivenDamping ?? 0.0035);
+      : (env.motionMode === "natural" ? PENDULUM.naturalDamping : PENDULUM.drivenDamping);
     const n = pendulumCount(this.params);
     const grab = this.stickGrab;
     const driveTorque = grab && this.dragging
@@ -405,7 +396,7 @@ export class DoublePendulumObject implements DeskObject {
     if (sticks && env.motionMode === "driven" && !this.dragging) this.stickStartKick = false;
     this.state = stepRk4(this.state, this.params, dt, damping, accel, locked, driveTorque);
     if (!sticks && !this.dragging && env.motionMode === "driven") {
-      const driveEnergy = (physics?.driveEnergy ?? 28) * (n / 2);
+      const driveEnergy = PENDULUM.driveEnergy * (n / 2);
       this.state = driveTowardEnergy(this.state, this.params, restEnergy(this.params) + driveEnergy, dt);
     }
     const limit = sticks ? STICK_OMEGA_LIMIT : MAX_OMEGA;
@@ -719,8 +710,7 @@ export class DoublePendulumObject implements DeskObject {
     return { minX, minY, maxX, maxY };
   }
 
-  private fitOriginOnCanvas(recordShift = true): void {
-    const desired = { x: this.origin.x, y: this.origin.y };
+  private fitOriginOnCanvas(): void {
     const { width, height } = this.canvasSize;
     if (width < 16 || height < 16) return;
     const bounds = this.originBounds();
@@ -728,9 +718,6 @@ export class DoublePendulumObject implements DeskObject {
       x: clamp(this.origin.x, bounds.minX, bounds.maxX),
       y: clamp(this.origin.y, bounds.minY, bounds.maxY),
     });
-    if (!recordShift) return;
-    this.windowShift.x += desired.x - this.origin.x;
-    this.windowShift.y += desired.y - this.origin.y;
   }
 
   private standGeometry() {
@@ -790,11 +777,10 @@ export class DoublePendulumObject implements DeskObject {
 
 function paramsFromPhysics(physics: PhysicsSettings): PendulumParams {
   const n = physics.bobCount;
-  const compound = physics.style === "sticks";
-  if (compound) {
+  if (physics.style === "sticks") {
     const spec = stickGeometry(n);
     return {
-      g: physics.gravity,
+      g: PENDULUM.gravity,
       masses: spec.masses,
       lengths: spec.lengths,
       model: "compound",
@@ -802,9 +788,9 @@ function paramsFromPhysics(physics: PhysicsSettings): PendulumParams {
     };
   }
   return {
-    g: physics.gravity,
-    masses: [physics.mass1, physics.mass2, physics.mass3].slice(0, n),
-    lengths: [physics.length1, physics.length2, physics.length3].slice(0, n),
+    g: PENDULUM.gravity,
+    masses: [...PENDULUM.masses].slice(0, n),
+    lengths: [...PENDULUM.lengths].slice(0, n),
     model: "point",
   };
 }

@@ -6,7 +6,7 @@ const summary={textContent:''};
 const chart={style:{},setAttribute(){},getContext:()=>null};
 const panel={style:{},append(){},remove(){removed++;}};
 const moduleStub={exports:{}};
-const source=esbuild.buildSync({entryPoints:['src/renderer/src/frame-debug.ts'],bundle:true,platform:'node',format:'cjs',write:false}).outputFiles[0].text;
+const source=esbuild.buildSync({entryPoints:['src/renderer/src/frame-debug.ts'],bundle:true,platform:'node',format:'cjs',write:false,define:{__KINETIC_DEV_TOOLS__:'true'}}).outputFiles[0].text;
 vm.runInNewContext(source,{module:moduleStub,exports:moduleStub.exports,performance:{now:()=>now},document:{createElement:tag=>tag==='pre'?panel:tag==='span'?summary:chart,body:{appendChild(){}}},setInterval:fn=>{timer=fn;return 1},clearInterval:()=>{timer=null}});
 const debug=new moduleStub.exports.FrameDebug();
 debug.configure(false,60,false);assert.equal(timer,null);

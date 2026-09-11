@@ -10,7 +10,7 @@ const esbuild = require('esbuild');
 
 const bundle = (entry) => esbuild.buildSync({
   entryPoints: [entry], bundle: true, platform: 'node', format: 'cjs',
-  external: ['electron'], write: false,
+  external: ['electron'], write: false, define: { __KINETIC_DEV_TOOLS__: 'false' },
 }).outputFiles[0].text;
 
 const SRC = {
@@ -91,9 +91,8 @@ function makeRig(displays) {
   });
   const types = loadModule(SRC.types, { require });
 
-  const overlay = wm.createOverlayWindow(700);
+  const overlay = wm.createOverlayWindow(700, 'sticks');
   const win = overlay.browserWindow;
-  const moveWindowBy = (dx, dy, keepInReach) => handlers.get('move-window-by')(null, dx, dy, keepInReach);
   const dragObjectTo = (x, y) => handlers.get('drag-object-to')(null, x, y);
   const reportAnchor = () => {
     const fn = handlers.get('set-object-anchor');
@@ -105,13 +104,9 @@ function makeRig(displays) {
   object.layout(win.bounds.width, win.bounds.height);
   object.applyPhysics(physics);
 
-  // The renderer reports the settled pivot before asking for the window move,
-  // because the main process clamps that move against the pivot.
-  const flush = () => {
-    const shift = object.consumeWindowShift();
-    reportAnchor();
-    if (shift.x !== 0 || shift.y !== 0) moveWindowBy(shift.x, shift.y, false);
-  };
+  // Reporting where the object settled is the whole of it: the main process
+  // places the window so the object lands where it belongs.
+  const flush = () => reportAnchor();
   flush();
 
   const rig = {
@@ -354,7 +349,7 @@ for (const [label, displays] of DISPLAYS) {
   for (const style of ['bobs', 'sticks']) {
     for (const bobCount of [1, 2, 3]) {
       for (const size of [360, 500, 700, 900, 1100, 1200]) {
-        const win = wm.overlayWindowSize(size);
+        const win = wm.overlayWindowSize(size, style);
         const object = new DoublePendulumObject();
         object.layout(4000, 4000);
         object.applyPhysics({ ...types.defaultPhysicsSettings, style, bobCount, windowSize: size });

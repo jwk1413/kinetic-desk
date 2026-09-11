@@ -2,7 +2,7 @@ const assert=require('node:assert/strict');
 const vm=require('node:vm');
 const {EventEmitter}=require('node:events');
 const esbuild=require('esbuild');
-const code=esbuild.buildSync({entryPoints:['src/main/window-manager.ts'],bundle:true,platform:'node',format:'cjs',external:['electron'],write:false}).outputFiles[0].text;
+const code=esbuild.buildSync({entryPoints:['src/main/window-manager.ts'],bundle:true,platform:'node',format:'cjs',external:['electron'],write:false,define:{__KINETIC_DEV_TOOLS__:'false'}}).outputFiles[0].text;
 for(const platform of ['win32','darwin']) {
  const handlers=new Map();const bounds={x:0,y:0,width:1000,height:800};const workArea={x:0,y:25,width:1000,height:775};let macCalls=0;
  class Window extends EventEmitter {
@@ -21,11 +21,11 @@ for(const platform of ['win32','darwin']) {
  overlay.setInteractionMode('passthrough');assert.equal(win.ignore,true);
  const fits=(b,label)=>{assert(b.width<=workArea.width&&b.height<=workArea.height,label+': window larger than the work area');};
  fits(win.options,'initial placement');
- overlay.setSize(900);fits(win.bounds,'oversized resize');
+ overlay.setSize(900,'bobs');fits(win.bounds,'oversized resize');
  assert(win.bounds.width<1395,'a request too large for the display must shrink');
- const small=win.bounds.width;overlay.setSize(500);fits(win.bounds,'small resize');
+ const small=win.bounds.width;overlay.setSize(500,'bobs');fits(win.bounds,'small resize');
  assert(win.bounds.width<small,'asking for a smaller size must shrink the window');
- assert.equal(win.bounds.width,module.exports.overlayWindowSize(500).width,'window must follow overlayWindowSize');
+ assert.equal(win.bounds.width,module.exports.overlayWindowSize(500,'bobs').width,'window must follow overlayWindowSize');
  assert.equal(macCalls,platform==='darwin'?1:0);
  electron.app.emit('before-quit');console.log(platform+': window startup, transparency, topmost, click-through, display-fitted resize and cleanup passed (API simulation).');
 }

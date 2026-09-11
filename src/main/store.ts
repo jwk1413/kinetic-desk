@@ -30,17 +30,23 @@ function migrateWindowSize(input: Partial<PhysicsSettings>): Partial<PhysicsSett
 }
 
 export function clampPhysics(input: Partial<PhysicsSettings>): PhysicsSettings {
-  const next = { ...defaultPhysicsSettings, ...input };
-  (Object.keys(physicsLimits) as Array<Exclude<keyof PhysicsSettings, "style">>).forEach((key) => {
-    if (key === "bobCount") return;
+  // Built key by key rather than spread: settings files written by older
+  // versions carry ten fields that are constants now, and spreading them would
+  // keep copying them forward forever.
+  const number = (value: unknown, key: keyof typeof physicsLimits) => {
     const { min, max } = physicsLimits[key];
-    const value = Number(next[key]);
-    next[key] = Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : defaultPhysicsSettings[key];
-  });
-  const count = Math.min(3, Math.max(1, Math.round(Number(next.bobCount))));
-  next.bobCount = (count === 1 || count === 3 ? count : 2) as PhysicsSettings["bobCount"];
-  next.style = next.style === "sticks" ? "sticks" : "bobs";
-  return next;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : defaultPhysicsSettings[key];
+  };
+  const count = Math.round(Number(input.bobCount));
+  return {
+    windowSize: number(input.windowSize, "windowSize"),
+    timeScale: number(input.timeScale, "timeScale"),
+    bobCount: (Number.isFinite(count)
+      ? Math.min(3, Math.max(1, count))
+      : defaultPhysicsSettings.bobCount) as PhysicsSettings["bobCount"],
+    style: input.style === "sticks" ? "sticks" : "bobs",
+  };
 }
 
 function settingsPath(): string {

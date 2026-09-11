@@ -17,9 +17,11 @@ function syncFrameDebug(): void {
 }
 
 const params = new URLSearchParams(location.search);
-const benchMode = params.has("bench");
-const benchObjects = Math.max(1, Math.min(30, Number(params.get("objects") ?? 1) || 1));
-const drawShadows = params.get("shadows") !== "0";
+const benchMode = __KINETIC_DEV_TOOLS__ && params.has("bench");
+const benchObjects = __KINETIC_DEV_TOOLS__
+  ? Math.max(1, Math.min(30, Number(params.get("objects") ?? 1) || 1))
+  : 1;
+const drawShadows = !__KINETIC_DEV_TOOLS__ || params.get("shadows") !== "0";
 const desk = window.desk;
 
 let objects: DoublePendulumObject[] = [new DoublePendulumObject()];
@@ -60,7 +62,6 @@ function spawnObjects(count: number): void {
     object.layout(viewWidth, viewHeight);
     object.applyPhysics(appState.physics);
     if (i > 0) {
-      object.consumeWindowShift();
       placeBenchObject(object, i);
     }
     objects.push(object);
@@ -99,21 +100,18 @@ function resize(): void {
     objects[i].layout(viewWidth, viewHeight);
     if (i === 0) applyWindowShift();
     else {
-      objects[i].consumeWindowShift();
       placeBenchObject(objects[i], i);
     }
   }
   markDirty();
 }
 
+/**
+ * The main process places the window so the object lands where it belongs, so
+ * telling it where the object now sits is the whole of the job.
+ */
 function applyWindowShift(): void {
-  const shift = primary().consumeWindowShift();
-  // Report first: the main process clamps the move against the pivot, so it
-  // needs the position the object has *already* settled into.
   pushObjectAnchor();
-  // A correction, not a move: it cancels a shift the object just made inside the
-  // canvas, so clamping it would drag the object away from where the user put it.
-  if (shift.x !== 0 || shift.y !== 0) desk?.moveWindowBy(shift.x, shift.y, false);
 }
 
 let lastAnchor = { pivotX: NaN, pivotY: NaN, reach: NaN };
@@ -454,7 +452,6 @@ desk?.onState((next) => {
   for (const object of objects) object.applyPhysics(next.physics);
   applyWindowShift();
   for (let i = 1; i < objects.length; i += 1) {
-    objects[i].consumeWindowShift();
     placeBenchObject(objects[i], i);
   }
   if (leftControl) {
@@ -468,7 +465,7 @@ desk?.onState((next) => {
   markDirty();
 });
 
-desk?.onBenchControl?.((command) => {
+if (__KINETIC_DEV_TOOLS__) desk?.onBenchControl?.((command) => {
   if (command === "start") perf.start();
   if (command === "stop") {
     desk?.sendBenchResult?.({
@@ -487,7 +484,7 @@ desk?.onBenchControl?.((command) => {
 });
 
 resize();
-if (benchObjects > 1) spawnObjects(benchObjects);
+if (__KINETIC_DEV_TOOLS__ && benchObjects > 1) spawnObjects(benchObjects);
 if (benchMode) {
   console.log(`[kinetic] bench loop objects=${objects.length} shadows=${drawShadows ? "on" : "off"}`);
 }

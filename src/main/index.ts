@@ -41,12 +41,12 @@ if (!gotLock) {
       motionMode: saved.motionMode,
     };
     // A window larger than the screen would park the object off the desktop.
-    const startSize = fitSizeToArea(state.physics.windowSize, primaryWorkArea());
+    const startSize = fitSizeToArea(state.physics.windowSize, primaryWorkArea(), state.physics.style);
     if (startSize !== state.physics.windowSize) {
       console.log(`[kinetic] window size ${state.physics.windowSize} does not fit this display; using ${startSize}`);
       state = { ...state, physics: { ...state.physics, windowSize: startSize } };
     }
-    if (process.env.KINETIC_BENCH) {
+    if (__KINETIC_DEV_TOOLS__ && process.env.KINETIC_BENCH) {
       state = {
         ...state,
         interactionMode: "passthrough",
@@ -62,7 +62,7 @@ if (!gotLock) {
         }),
       };
     }
-    if (!process.env.KINETIC_BENCH) {
+    if (!(__KINETIC_DEV_TOOLS__ && process.env.KINETIC_BENCH)) {
       saveSettings({
         physics: state.physics,
         pivotInertia: state.pivotInertia,
@@ -71,7 +71,7 @@ if (!gotLock) {
       });
     }
 
-    const overlay = createOverlayWindow(state.physics.windowSize);
+    const overlay = createOverlayWindow(state.physics.windowSize, state.physics.style);
     const { browserWindow } = overlay;
     let rebuildTray = () => {};
 
@@ -138,11 +138,13 @@ if (!gotLock) {
     };
 
     const setPhysics = (requested: PhysicsSettings) => {
-      const physics = { ...requested, windowSize: overlay.fitSize(requested.windowSize) };
-      const sizeChanged = physics.windowSize !== state.physics.windowSize;
+      const physics = { ...requested, windowSize: overlay.fitSize(requested.windowSize, requested.style) };
+      // The window is sized for the shape too, so switching shape resizes it.
+      const resized = physics.windowSize !== state.physics.windowSize
+        || physics.style !== state.physics.style;
       state = { ...state, physics };
       persist();
-      if (sizeChanged) overlay.setSize(physics.windowSize);
+      if (resized) overlay.setSize(physics.windowSize, physics.style);
       broadcast();
     };
 
@@ -179,16 +181,8 @@ if (!gotLock) {
       console.log(`[capability] click-through: ${overlay.capabilities.clickThrough ? "yes" : "no"}`);
       console.log("[capability] return from click-through: tray extra + CommandOrControl+Alt+P");
     });
-    ipcMain.on(IpcChannel.setMotionMode, (_event, mode: MotionMode) => setMotionMode(mode));
-    ipcMain.on(IpcChannel.setTrails, (_event, enabled: boolean) => setTrails(enabled));
-    ipcMain.on(IpcChannel.setPivotInertia, (_event, enabled: boolean) => setPivotInertia(enabled));
-    ipcMain.on(IpcChannel.updatePhysics, (_event, patch: Partial<PhysicsSettings>) => {
-      setPhysics(clampPhysics({ ...state.physics, ...patch }));
-    });
-    ipcMain.on(IpcChannel.resetPhysics, () => setPhysics({ ...defaultPhysicsSettings }));
-    ipcMain.on(IpcChannel.resetObject, () => reset());
 
-    const bench = process.env.KINETIC_BENCH;
+    const bench = __KINETIC_DEV_TOOLS__ ? process.env.KINETIC_BENCH : undefined;
     if (bench) {
       const samples: Array<{ cpu: number; memory: number; type: string }> = [];
       const collect = () => {

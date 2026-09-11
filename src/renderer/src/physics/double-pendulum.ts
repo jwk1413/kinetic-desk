@@ -25,10 +25,24 @@ export interface LockedJoint {
   alpha: number;
 }
 
+/**
+ * The pendulum itself: rod lengths, bob masses and how hard it is driven. These
+ * were settings once, but nothing in the app could change them — only hand
+ * editing the settings file — so they live here as the shape of the object.
+ */
+export const PENDULUM = {
+  gravity: 9.81,
+  lengths: [1, 0.88, 0.76],
+  masses: [1.15, 1, 0.88],
+  naturalDamping: 0.014,
+  drivenDamping: 0.0035,
+  driveEnergy: 28,
+} as const;
+
 export const defaultPendulumParams: PendulumParams = {
-  masses: [1.15, 1],
-  lengths: [1, 0.88],
-  g: 9.81,
+  masses: [...PENDULUM.masses].slice(0, 2),
+  lengths: [...PENDULUM.lengths].slice(0, 2),
+  g: PENDULUM.gravity,
   model: "point",
 };
 

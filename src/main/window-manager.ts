@@ -1,15 +1,15 @@
 import { app, BrowserWindow, ipcMain, screen } from "electron";
 import { join } from "node:path";
 import { IpcChannel, type ObjectAnchor } from "../shared/ipc";
-import { WINDOW_WIDTH, physicsLimits, type InteractionMode } from "../shared/types";
+import { WINDOW_WIDTH, physicsLimits, type InteractionMode, type PendulumStyle } from "../shared/types";
 
 export interface OverlayWindow {
   browserWindow: BrowserWindow;
   setInteractionMode: (mode: InteractionMode) => void;
   setClickThrough: (ignore: boolean) => void;
-  setSize: (size: number) => void;
+  setSize: (size: number, style: PendulumStyle) => void;
   /** Clamps a requested size to what the overlay's current display can hold. */
-  fitSize: (size: number) => number;
+  fitSize: (size: number, style: PendulumStyle) => number;
   capabilities: {
     transparent: boolean;
     alwaysOnTop: boolean;
@@ -57,8 +57,15 @@ function nearestArea(x: number, y: number) {
   return best;
 }
 
-const WIDTH_RATIO = 0.93;
-const HEIGHT_RATIO = 0.93;
+// How much window each shape needs, as a multiple of the chosen size. A bob
+// pendulum sweeps a full circle of rod length; the sticks hang from a stand and
+// need noticeably less. Measured worst cases are 0.841 and 0.667 across every
+// pendulum count and size, and tests/object-placement.cjs checks that the window
+// can still hold the object for every combination.
+const SIZE_RATIO: Record<PendulumStyle, { width: number; height: number }> = {
+  bobs: { width: 0.9, height: 0.9 },
+  sticks: { width: 0.7, height: 0.73 },
+};
 // The overlay is transparent, so an oversized window is invisible but still
 // pushes the object off screen. Keep a margin so the swing stays reachable.
 const SCREEN_MARGIN = 16;
@@ -66,17 +73,21 @@ const SCREEN_MARGIN = 16;
 // when it is small.
 const MIN_EDGE_MARGIN = 24;
 
-export function overlayWindowSize(size: number): { width: number; height: number } {
-  const width = Math.round(size * WIDTH_RATIO);
-  const height = Math.round(size * HEIGHT_RATIO);
-  return { width, height };
+export function overlayWindowSize(size: number, style: PendulumStyle = "bobs"): { width: number; height: number } {
+  const ratio = SIZE_RATIO[style] ?? SIZE_RATIO.bobs;
+  return { width: Math.round(size * ratio.width), height: Math.round(size * ratio.height) };
 }
 
 /** Largest requested size whose overlay window still fits inside `area`. */
-export function fitSizeToArea(size: number, area: { width: number; height: number }): number {
+export function fitSizeToArea(
+  size: number,
+  area: { width: number; height: number },
+  style: PendulumStyle = "bobs",
+): number {
+  const ratio = SIZE_RATIO[style] ?? SIZE_RATIO.bobs;
   const usableWidth = Math.max(160, area.width - SCREEN_MARGIN * 2);
   const usableHeight = Math.max(160, area.height - SCREEN_MARGIN * 2);
-  const limit = Math.min(usableWidth / WIDTH_RATIO, usableHeight / HEIGHT_RATIO);
+  const limit = Math.min(usableWidth / ratio.width, usableHeight / ratio.height);
   return Math.max(physicsLimits.windowSize.min, Math.min(size, Math.floor(limit)));
 }
 
@@ -145,7 +156,7 @@ function intersectsDesktop(bounds: { x: number; y: number; width: number; height
 }
 
 function benchQuery(): Record<string, string> {
-  if (!process.env.KINETIC_BENCH) return {};
+  if (!__KINETIC_DEV_TOOLS__ || !process.env.KINETIC_BENCH) return {};
   const query: Record<string, string> = { bench: "1" };
   const objects = process.env.KINETIC_BENCH_OBJECTS;
   if (objects) query.objects = objects;
@@ -161,8 +172,8 @@ function withBenchQuery(base: string): string {
   return url.toString();
 }
 
-export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
-  const { width, height } = overlayWindowSize(fitSizeToArea(size, primaryWorkArea()));
+export function createOverlayWindow(size = WINDOW_WIDTH, style: PendulumStyle = "bobs"): OverlayWindow {
+  const { width, height } = overlayWindowSize(fitSizeToArea(size, primaryWorkArea(), style), style);
   const initial = placeOnPrimary(width, height);
 
   const browserWindow = new BrowserWindow({
@@ -297,36 +308,13 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
   };
 
   ipcMain.removeAllListeners(IpcChannel.setClickThrough);
-  ipcMain.removeAllListeners(IpcChannel.moveWindowBy);
   ipcMain.removeAllListeners(IpcChannel.dragObjectTo);
   ipcMain.removeAllListeners(IpcChannel.setObjectAnchor);
   ipcMain.removeHandler(IpcChannel.getWindowBounds);
-  ipcMain.removeHandler(IpcChannel.getDisplayLayout);
 
   ipcMain.on(IpcChannel.setClickThrough, (_event, ignore: boolean) => {
     hoverClickThrough = ignore || interactionMode === "passthrough";
     applyClickThrough();
-  });
-  ipcMain.on(IpcChannel.moveWindowBy, (_event, dx: number, dy: number, keepInReach = true) => {
-    if (browserWindow.isDestroyed()) return;
-    // Layout corrections are already handled: the window follows the anchor on
-    // every report, so a correction would only move the object twice.
-    if (!keepInReach) return;
-    const bounds = browserWindow.getBounds();
-    if (anchor === null) anchor = { x: bounds.x + objectAnchor.pivotX, y: bounds.y + objectAnchor.pivotY };
-    const moved = clampWindow(
-      anchor.x + dx - objectAnchor.pivotX,
-      anchor.y + dy - objectAnchor.pivotY,
-      bounds.width,
-      bounds.height,
-      objectAnchor,
-    );
-    anchor = { x: moved.x + objectAnchor.pivotX, y: moved.y + objectAnchor.pivotY };
-    placeToAnchor();
-    if (!browserWindow.isDestroyed()) {
-      const landed = browserWindow.getBounds();
-      browserWindow.webContents.send(IpcChannel.windowBounds, { x: landed.x, y: landed.y });
-    }
   });
   ipcMain.on(IpcChannel.dragObjectTo, (_event, x: number, y: number) => {
     if (browserWindow.isDestroyed()) return;
@@ -375,9 +363,9 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
       hoverClickThrough = ignore;
       applyClickThrough();
     },
-    setSize(nextSize) {
+    setSize(nextSize, style) {
       if (browserWindow.isDestroyed()) return;
-      const size = overlayWindowSize(overlay.fitSize(nextSize));
+      const size = overlayWindowSize(overlay.fitSize(nextSize, style), style);
       const current = browserWindow.getBounds();
       if (size.width === current.width && size.height === current.height) return;
       const ratioX = size.width / current.width;
@@ -393,11 +381,11 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
       objectAnchor = { ...objectAnchor, pivotX, pivotY };
       applyBounds({ x: Math.round(held.x - pivotX), y: Math.round(held.y - pivotY), ...size });
     },
-    fitSize(size) {
-      if (browserWindow.isDestroyed()) return fitSizeToArea(size, primaryWorkArea());
+    fitSize(size, style) {
+      if (browserWindow.isDestroyed()) return fitSizeToArea(size, primaryWorkArea(), style);
       const bounds = browserWindow.getBounds();
       const display = screen.getDisplayMatching(bounds) ?? screen.getPrimaryDisplay();
-      return fitSizeToArea(size, display.workArea);
+      return fitSizeToArea(size, display.workArea, style);
     },
     capabilities,
   };
@@ -407,12 +395,10 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
     screen.removeListener("display-added", keepOnDesktop);
     screen.removeListener("display-removed", keepOnDesktop);
     ipcMain.removeAllListeners(IpcChannel.setClickThrough);
-    ipcMain.removeAllListeners(IpcChannel.moveWindowBy);
-    ipcMain.removeAllListeners(IpcChannel.dragObjectTo);
+      ipcMain.removeAllListeners(IpcChannel.dragObjectTo);
     ipcMain.removeAllListeners(IpcChannel.setObjectAnchor);
     ipcMain.removeHandler(IpcChannel.getWindowBounds);
-    ipcMain.removeHandler(IpcChannel.getDisplayLayout);
-  });
+    });
 
   return overlay;
 }
