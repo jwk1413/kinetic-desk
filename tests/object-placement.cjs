@@ -27,10 +27,17 @@ function loadModule(code, sandbox) {
   return module.exports;
 }
 
+const overlapArea = (a, b) => Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x))
+  * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+
+const oneDisplay = (width, height) => [{
+  bounds: { x: 0, y: 0, width, height },
+  workArea: { x: 0, y: 25, width, height: height - 25 },
+  primary: true,
+}];
+
 /** A fake desktop plus the wiring the renderer normally performs. */
-function makeRig(displayWidth, displayHeight) {
-  const bounds = { x: 0, y: 0, width: displayWidth, height: displayHeight };
-  const workArea = { x: 0, y: 25, width: displayWidth, height: displayHeight - 25 };
+function makeRig(displays) {
   const handlers = new Map();
 
   class FakeWindow extends EventEmitter {
@@ -50,9 +57,12 @@ function makeRig(displayWidth, displayHeight) {
   }
 
   const screen = Object.assign(new EventEmitter(), {
-    getAllDisplays: () => [{ bounds, workArea }],
-    getPrimaryDisplay: () => ({ bounds, workArea }),
-    getDisplayMatching: () => ({ bounds, workArea }),
+    getAllDisplays: () => displays,
+    getPrimaryDisplay: () => displays.find((d) => d.primary) ?? displays[0],
+    getDisplayMatching: (rect) => displays.reduce(
+      (best, d) => (overlapArea(rect, d.bounds) > overlapArea(rect, best.bounds) ? d : best),
+      displays[0],
+    ),
   });
   const electron = {
     app: new EventEmitter(), screen, BrowserWindow: FakeWindow,
@@ -98,12 +108,12 @@ function makeRig(displayWidth, displayHeight) {
   flush();
 
   const rig = {
-    workArea,
+    displays,
     pivot: () => ({ x: Math.round(win.bounds.x + object.origin.x), y: Math.round(win.bounds.y + object.origin.y) }),
     onScreen() {
       const p = rig.pivot();
-      return p.x >= workArea.x && p.x <= workArea.x + workArea.width
-        && p.y >= workArea.y && p.y <= workArea.y + workArea.height;
+      return displays.some(({ workArea: w }) => p.x >= w.x && p.x <= w.x + w.width
+        && p.y >= w.y && p.y <= w.y + w.height);
     },
     sync() { object.layout(win.bounds.width, win.bounds.height); flush(); },
     drag(dx, dy) {
@@ -125,17 +135,23 @@ function makeRig(displayWidth, displayHeight) {
 }
 
 const DISPLAYS = [
-  ['13" 노트북', 1470, 956],
-  ['16" 노트북', 1728, 1117],
-  ['외장 모니터', 2560, 1440],
+  ['13" 노트북', oneDisplay(1470, 956)],
+  ['16" 노트북', oneDisplay(1728, 1117)],
+  ['외장 모니터', oneDisplay(2560, 1440)],
+  // A big primary with a smaller laptop beside it at a vertical offset: the
+  // window can be sized for one display while the object sits on the other.
+  ['외장+노트북 (경계 있음)', [
+    { bounds: { x: 0, y: 0, width: 3008, height: 1692 }, workArea: { x: 0, y: 30, width: 3008, height: 1662 }, primary: true },
+    { bounds: { x: 3008, y: 101, width: 1728, height: 1117 }, workArea: { x: 3008, y: 134, width: 1728, height: 1084 } },
+  ]],
 ];
 const SIZES = [500, 700, 900, 1100];
 const CORNERS = [['좌상', -3000, -3000], ['우상', 3000, -3000], ['좌하', -3000, 3000], ['우하', 3000, 3000]];
 
 // 1. The pivot must stay grabbable no matter where it is dragged.
-for (const [label, w, h] of DISPLAYS) {
+for (const [label, displays] of DISPLAYS) {
   for (const [corner, dx, dy] of CORNERS) {
-    const rig = makeRig(w, h);
+    const rig = makeRig(displays);
     rig.drag(dx, dy);
     rig.sync();
     assert(rig.onScreen(), `${label} ${corner} 모서리로 드래그하면 고정점이 화면을 벗어남: ${JSON.stringify(rig.pivot())}`);
@@ -143,8 +159,8 @@ for (const [label, w, h] of DISPLAYS) {
 }
 
 // 2. Changing style must not move the object.
-for (const [label, w, h] of DISPLAYS) {
-  const rig = makeRig(w, h);
+for (const [label, displays] of DISPLAYS) {
+  const rig = makeRig(displays);
   rig.drag(-200, 120);
   rig.sync();
   const before = rig.pivot();
@@ -153,16 +169,16 @@ for (const [label, w, h] of DISPLAYS) {
 }
 
 // 3. Changing size must not move the object, and must not accumulate.
-for (const [label, w, h] of DISPLAYS) {
-  const rig = makeRig(w, h);
+for (const [label, displays] of DISPLAYS) {
+  const rig = makeRig(displays);
   const before = rig.pivot();
   for (let i = 0; i < 16; i += 1) rig.setSize(SIZES[i % SIZES.length]);
   assert.deepEqual(rig.pivot(), before, `${label}: 창 크기를 바꾸면 고정점이 이동함`);
 }
 
 // 4. Interleaving both settles instead of ratcheting, and never escapes.
-for (const [label, w, h] of DISPLAYS) {
-  const rig = makeRig(w, h);
+for (const [label, displays] of DISPLAYS) {
+  const rig = makeRig(displays);
   let settled = null;
   for (let i = 1; i <= 240; i += 1) {
     if (i % 3 === 0) rig.setStyle(i % 2 ? 'bobs' : 'sticks');
@@ -171,6 +187,33 @@ for (const [label, w, h] of DISPLAYS) {
     if (i === 60) settled = rig.pivot();
   }
   assert.deepEqual(rig.pivot(), settled, `${label}: 형태·크기를 섞어 바꾸면 위치가 계속 밀림`);
+}
+
+// 5. Pushing the object hard against an edge and then enlarging must not strand it.
+for (const [label, displays] of DISPLAYS) {
+  for (const [corner, dx, dy] of CORNERS) {
+    const rig = makeRig(displays);
+    rig.drag(dx, dy);
+    const parked = rig.pivot();
+    // Hard against the edge the pivot can sit a pixel either way, because the
+    // renderer reports it rounded to whole pixels. That must stay a wobble:
+    // bounded, and never trending away from where the object was parked.
+    const seen = [];
+    for (const size of [900, 1100, 700, 1100, 500, 900, 1100, 500, 700]) {
+      rig.setSize(size);
+      const now = rig.pivot();
+      assert(rig.onScreen(), `${label} ${corner}: 가장자리에서 크기를 ${size}px로 바꾸니 고정점이 화면을 벗어남 ${JSON.stringify(now)}`);
+      seen.push(now);
+    }
+    const spread = (axis) => Math.max(...seen.map((p) => p[axis])) - Math.min(...seen.map((p) => p[axis]));
+    const strayed = (axis) => Math.max(...seen.map((p) => Math.abs(p[axis] - parked[axis])));
+    for (const axis of ['x', 'y']) {
+      assert(spread(axis) <= 2,
+        `${label} ${corner}: 가장자리에서 크기를 반복해 바꾸면 고정점 ${axis}가 ${spread(axis)}px 밀림`);
+      assert(strayed(axis) <= 2,
+        `${label} ${corner}: 가장자리에서 크기를 바꾸니 고정점 ${axis}가 놓아둔 자리에서 ${strayed(axis)}px 벗어남`);
+    }
+  }
 }
 
 console.log('Object placement: pivot stays grabbable from every corner, and style/size changes neither move nor ratchet it.');
