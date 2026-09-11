@@ -1,0 +1,35 @@
+appId: com.kineticdesk.app
+productName: 키네틱 데스크
+directories:
+  output: dist
+files:
+  - out/**
+afterPack: scripts/sign-mac.cjs
+toolsets:
+  wine: "1.0.1"
+mac:
+  category: public.app-category.entertainment
+  icon: build/icon.icns
+  target:
+    - dmg
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  artifactName: ${productName}-${version}-mac.${ext}
+win:
+  icon: build/icon.ico
+  executableName: KineticDesk
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: KineticDesk-Setup-${version}-x64.${ext}
+nsis:
+  oneClick: true
+  perMachine: false
+  runAfterFinish: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
+dmg:
+  artifactName: ${productName}-${version}-mac.${ext}

@@ -1,0 +1,20 @@
+---
+description: Bump package version before packaging Mac or Windows builds
+alwaysApply: true
+---
+
+# Version on build
+
+When the user asks to package or rebuild (`npm run dist`, `npm run dist:win`, Mac/Windows 빌드), bump `package.json` (and lockfile) **before** electron-builder if there are unreleased code changes since the current version.
+
+Do not bump if the tree has no product changes (rebuild of the same bits).
+
+SemVer (`MAJOR.MINOR.PATCH`):
+
+- **Patch (+0.0.1)** — 마이너 수정: bugfix, clipping, performance, copy, small behavior tweaks
+- **Minor (+0.1.0)** — 그 윗단계: new user-facing feature or setting (patch resets to 0)
+- **Major (+1.0.0)** — 그 윗단계: breaking change or large product shift (minor and patch reset to 0)
+
+Examples: `0.1.0` → patch `0.1.1`; feature `0.2.0`; breaking `1.0.0`.
+
+electron-builder reads `package.json` `version` for artifact names. Do not edit git config or create git tags unless asked.
