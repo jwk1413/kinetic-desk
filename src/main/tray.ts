@@ -1,20 +1,50 @@
 import { Menu, Tray, type BrowserWindow } from "electron";
-import type { AppState, InteractionMode, MotionMode, PhysicsSettings } from "../shared/types";
+import {
+  GLOBAL_TOGGLE_ACCELERATOR,
+  type AppState,
+  type BobCount,
+  type InteractionMode,
+  type MotionMode,
+  type PendulumStyle,
+  type PhysicsSettings,
+} from "../shared/types";
 import { createTrayIcon } from "./icon";
 
-const WINDOW_SIZES = [
+/** A set of mutually exclusive values shown as a submenu of radio items. */
+interface Choice<T> {
+  label: string;
+  value: T;
+}
+
+const SHAPES: Choice<PendulumStyle>[] = [
+  { label: "추 진자", value: "bobs" },
+  { label: "스윙잉 스틱스", value: "sticks" },
+];
+
+const COUNTS: Choice<BobCount>[] = [
+  { label: "1중", value: 1 },
+  { label: "2중", value: 2 },
+  { label: "3중", value: 3 },
+];
+
+const SIZES: Choice<number>[] = [
   { label: "작게", value: 500 },
   { label: "보통", value: 700 },
   { label: "크게", value: 900 },
   { label: "아주 크게", value: 1100 },
 ];
 
-const TIME_SCALES = [
+const SPEEDS: Choice<number>[] = [
   { label: "0.5×", value: 0.5 },
   { label: "0.75×", value: 0.75 },
   { label: "1×", value: 1 },
   { label: "1.5×", value: 1.5 },
   { label: "2×", value: 2 },
+];
+
+const FRAME_RATES: Choice<30 | 60>[] = [
+  { label: "30fps", value: 30 },
+  { label: "60fps", value: 60 },
 ];
 
 export interface TrayHandlers {
@@ -40,80 +70,59 @@ export function createAppTray(
   tray.setToolTip("키네틱 데스크");
   if (process.platform === "darwin") tray.setTitle("키네틱");
 
+  /**
+   * A submenu of radio items whose parent shows the current value, so the whole
+   * setup is readable without opening anything.
+   */
+  function choice<T>(
+    title: string,
+    options: Choice<T>[],
+    current: T,
+    onPick: (value: T) => void,
+    toolTip?: string,
+  ) {
+    const picked = options.find((option) => option.value === current) ?? options[0];
+    return {
+      label: `${title}: ${picked.label}`,
+      toolTip,
+      submenu: options.map((option) => ({
+        label: option.label,
+        type: "radio" as const,
+        checked: option.value === current,
+        click: () => onPick(option.value),
+      })),
+    };
+  }
+
   const rebuild = () => {
     const state = getState();
-    const size = nearest(WINDOW_SIZES.map((item) => item.value), state.physics.windowSize);
-    const time = nearest(TIME_SCALES.map((item) => item.value), state.physics.timeScale);
+    const { physics } = state;
     const menu = Menu.buildFromTemplate([
       {
-        label: "조작 모드",
-        type: "radio",
-        checked: state.interactionMode === "control",
-        click: () => handlers.setInteractionMode("control"),
-      },
-      {
-        label: "감상 모드 (클릭 통과)",
-        type: "radio",
+        label: "클릭 통과",
+        type: "checkbox",
         checked: state.interactionMode === "passthrough",
-        click: () => handlers.setInteractionMode("passthrough"),
+        // Shown, not registered: the global shortcut is already bound. Without
+        // it here there is nothing to tell you how to get back once clicks pass
+        // through and the object can no longer be clicked.
+        accelerator: GLOBAL_TOGGLE_ACCELERATOR,
+        registerAccelerator: false,
+        toolTip: "켜면 모든 클릭이 뒤쪽 창으로 지나갑니다.",
+        click: (item) => handlers.setInteractionMode(item.checked ? "passthrough" : "control"),
       },
-      { type: "separator" },
       {
-        label: "자연히 멈추기",
-        type: "radio",
-        checked: state.motionMode === "natural",
-        click: () => handlers.setMotionMode("natural"),
-      },
-      {
-        label: "움직임 유지",
-        type: "radio",
+        label: "계속 흔들기",
+        type: "checkbox",
         checked: state.motionMode === "driven",
-        click: () => handlers.setMotionMode("driven"),
+        toolTip: "끄면 저절로 느려지다 멈춥니다.",
+        click: (item) => handlers.setMotionMode(item.checked ? "driven" : "natural"),
       },
       { type: "separator" },
-      {
-        label: "형태",
-        submenu: [
-          { label: "추 진자", value: "bobs" as const },
-          { label: "스윙잉 스틱스", value: "sticks" as const },
-        ].map((item) => ({
-          label: item.label,
-          type: "radio" as const,
-          checked: state.physics.style === item.value,
-          click: () => handlers.patchPhysics({ style: item.value }),
-        })),
-      },
-      {
-        label: "진자",
-        submenu: [
-          { label: "1중 진자", value: 1 as const },
-          { label: "2중 진자", value: 2 as const },
-          { label: "3중 진자", value: 3 as const },
-        ].map((item) => ({
-          label: item.label,
-          type: "radio" as const,
-          checked: state.physics.bobCount === item.value,
-          click: () => handlers.patchPhysics({ bobCount: item.value }),
-        })),
-      },
-      {
-        label: "창 크기",
-        submenu: WINDOW_SIZES.map((item) => ({
-          label: item.label,
-          type: "radio" as const,
-          checked: item.value === size,
-          click: () => handlers.patchPhysics({ windowSize: item.value }),
-        })),
-      },
-      {
-        label: "시간",
-        submenu: TIME_SCALES.map((item) => ({
-          label: item.label,
-          type: "radio" as const,
-          checked: item.value === time,
-          click: () => handlers.patchPhysics({ timeScale: item.value }),
-        })),
-      },
+      choice("모양", SHAPES, physics.style, (style) => handlers.patchPhysics({ style })),
+      choice("진자 수", COUNTS, physics.bobCount, (bobCount) => handlers.patchPhysics({ bobCount })),
+      choice("크기", SIZES, nearest(SIZES, physics.windowSize), (windowSize) => handlers.patchPhysics({ windowSize })),
+      choice("속도", SPEEDS, nearest(SPEEDS, physics.timeScale), (timeScale) => handlers.patchPhysics({ timeScale })),
+      choice("프레임", FRAME_RATES, state.displayFps, handlers.setDisplayFps, "30fps는 배터리를 덜 씁니다."),
       {
         label: "잔상",
         type: "checkbox",
@@ -121,49 +130,35 @@ export function createAppTray(
         click: (item) => handlers.setTrails(item.checked),
       },
       {
-        label: "감상 주사율",
-        submenu: [
-          { label: "30fps (절전)", value: 30 as const },
-          { label: "60fps (부드러움)", value: 60 as const },
-        ].map((item) => ({
-          label: item.label,
-          type: "radio" as const,
-          checked: state.displayFps === item.value,
-          click: () => handlers.setDisplayFps(item.value),
-        })),
+        label: "옮길 때 흔들리기",
+        type: "checkbox",
+        checked: state.pivotInertia,
+        toolTip: "고정점을 옮기면 추도 관성에 따라 흔들립니다.",
+        click: (item) => handlers.setPivotInertia(item.checked),
       },
       ...(__KINETIC_DEV_TOOLS__
         ? [
             {
-              label: "실시간 프레임 표시 (디버그)",
+              label: "프레임 정보 (개발용)",
               type: "checkbox" as const,
               checked: state.frameDebug,
               click: (item: { checked: boolean }) => handlers.setFrameDebug(item.checked),
             },
           ]
         : []),
-      {
-        label: "고정점 이동 시 흔들림",
-        type: "checkbox",
-        checked: state.pivotInertia,
-        toolTip: "고정점을 옮길 때 추도 관성에 따라 흔들립니다.",
-        click: (item) => handlers.setPivotInertia(item.checked),
-      },
-      {
-        label: "고정점을 옮길 때 추도 관성에 따라 흔들립니다.",
-        enabled: false,
-      },
       { type: "separator" },
       {
         label: state.paused ? "계속" : "일시정지",
         click: () => handlers.togglePause(),
       },
       {
-        label: "진자 초기화",
+        label: "움직임 초기화",
+        toolTip: "진자를 처음 자세로 되돌립니다. 설정은 그대로입니다.",
         click: () => handlers.reset(),
       },
       {
-        label: "기본값",
+        label: "설정 초기화",
+        toolTip: "모양·크기·속도를 기본값으로 되돌립니다.",
         click: () => handlers.resetPhysics(),
       },
       { type: "separator" },
@@ -184,8 +179,9 @@ export function createAppTray(
   return { tray, rebuild };
 }
 
-function nearest(options: number[], value: number): number {
+/** The preset closest to a stored value, which may have been clamped to fit a display. */
+function nearest(options: Choice<number>[], value: number): number {
   return options.reduce((best, option) =>
-    Math.abs(option - value) < Math.abs(best - value) ? option : best,
-  );
+    Math.abs(option.value - value) < Math.abs(best - value) ? option.value : best,
+  options[0].value);
 }
