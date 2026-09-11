@@ -3,7 +3,7 @@ const vm = require('node:vm');
 const esbuild = require('esbuild');
 function bundle(path) { return esbuild.buildSync({entryPoints:[path],bundle:true,platform:'node',format:'cjs',write:false,external:['electron'],define:{__KINETIC_DEV_TOOLS__:'true'}}).outputFiles[0].text; }
 function load(path, extra={}) { const module={exports:{}};vm.runInNewContext(bundle(path),{module,exports:module.exports,require,performance,console,...extra});return module.exports; }
-const sticks=load('src/renderer/src/physics/swinging-sticks.ts');
+const sticks=load('src/renderer/src/physics/rod-pendulum.ts');
 for(const sign of [-1,1]) {
  const omega=.4*sign;
  const q=sticks.stickDriveTorque({theta:[1.2*sign,-.4],omega:[omega,-.2]},.08);

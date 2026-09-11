@@ -18,7 +18,7 @@ interface Choice<T> {
 
 const SHAPES: Choice<PendulumStyle>[] = [
   { label: "추 진자", value: "bobs" },
-  { label: "스윙잉 스틱스", value: "sticks" },
+  { label: "막대 진자", value: "sticks" },
 ];
 
 const COUNTS: Choice<BobCount>[] = [

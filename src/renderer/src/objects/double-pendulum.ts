@@ -34,7 +34,7 @@ import {
   STICK_OMEGA_LIMIT,
   stickDriveTorque,
   stickGeometry,
-} from "../physics/swinging-sticks";
+} from "../physics/rod-pendulum";
 import {
   pruneSamples,
   recentVelocity,

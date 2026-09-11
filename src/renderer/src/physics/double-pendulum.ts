@@ -1,4 +1,4 @@
-import { STICK_LENGTHS, stickGeometry } from "./swinging-sticks";
+import { STICK_LENGTHS, stickGeometry } from "./rod-pendulum";
 
 export interface PendulumState {
   theta: number[];
