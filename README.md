@@ -4,6 +4,14 @@
 
 macOS용. 로그인도 서버도 없고, 아무것도 수집하지 않습니다.
 
+<p>
+  <img src="docs/bobs.gif" alt="추 진자" height="300">
+  <img src="docs/sticks.gif" alt="막대 진자" height="300">
+</p>
+
+왼쪽이 추 진자, 오른쪽이 막대 진자입니다. 초기값이 아주 조금만 달라도 몇 초 뒤엔
+완전히 다른 궤적을 그리므로, 볼 때마다 다릅니다.
+
 ## 설치
 
 [Releases](https://github.com/jwk1413/kinetic-desk/releases)에서 `.dmg`를 받아 `응용 프로그램`으로 옮깁니다. **Apple Silicon(M 시리즈) 전용입니다.**
