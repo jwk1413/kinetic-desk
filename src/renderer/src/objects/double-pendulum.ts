@@ -174,6 +174,12 @@ export class DoublePendulumObject implements DeskObject {
     return { x: this.windowOrigin.x + this.origin.x, y: this.windowOrigin.y + this.origin.y };
   }
 
+  /** The smallest canvas that can draw the object at full swing, shadow included. */
+  requiredCanvas(): { width: number; height: number } {
+    const inset = this.contentInsets();
+    return { width: inset.left + inset.right, height: inset.top + inset.bottom };
+  }
+
   consumeWindowShift(): { x: number; y: number } {
     const shift = this.windowShift;
     this.windowShift = { x: 0, y: 0 };

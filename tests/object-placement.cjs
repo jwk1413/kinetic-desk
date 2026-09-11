@@ -339,4 +339,31 @@ for (const [label, displays] of DISPLAYS) {
   assert.equal(noisy.length, 0, `드래그 중 경고가 ${noisy.length}번 찍힘: ${noisy[0]}`);
 }
 
+// 8. The overlay window is transparent, and every pixel of it costs GPU memory,
+// so it is kept close to what the object needs. It must still be able to hold
+// the object at its widest swing, shadow included, or the object gets clipped.
+{
+  const wm = loadModule(SRC.wm, {
+    require: (id) => (id === 'electron' ? { app: { on() {} }, screen: { getAllDisplays: () => [], getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 4000, height: 4000 } }) }, BrowserWindow: class {}, ipcMain: { on() {}, handle() {}, removeAllListeners() {}, removeHandler() {} } } : require(id)),
+    process: { platform: 'darwin', env: {} }, __dirname: '/app/out/main',
+  });
+  const { DoublePendulumObject } = loadModule(SRC.object, {
+    performance: fakeClock, document: { createElement: () => ({ getContext: () => null }) },
+  });
+  const types = loadModule(SRC.types, { require });
+  for (const style of ['bobs', 'sticks']) {
+    for (const bobCount of [1, 2, 3]) {
+      for (const size of [360, 500, 700, 900, 1100, 1200]) {
+        const win = wm.overlayWindowSize(size);
+        const object = new DoublePendulumObject();
+        object.layout(4000, 4000);
+        object.applyPhysics({ ...types.defaultPhysicsSettings, style, bobCount, windowSize: size });
+        const needed = object.requiredCanvas();
+        assert(needed.width <= win.width && needed.height <= win.height,
+          `${style} ${bobCount}중 ${size}px: 창 ${win.width}x${win.height} 이 오브제에 필요한 ${Math.ceil(needed.width)}x${Math.ceil(needed.height)} 보다 작아 잘림`);
+      }
+    }
+  }
+}
+
 console.log('Object placement: the object stays put through resizes, crosses displays, and survives being dragged past the edge.');

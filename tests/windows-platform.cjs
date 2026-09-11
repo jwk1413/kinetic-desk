@@ -23,7 +23,9 @@ for(const platform of ['win32','darwin']) {
  fits(win.options,'initial placement');
  overlay.setSize(900);fits(win.bounds,'oversized resize');
  assert(win.bounds.width<1395,'a request too large for the display must shrink');
- overlay.setSize(500);fits(win.bounds,'small resize');assert.equal(win.bounds.width,775);
+ const small=win.bounds.width;overlay.setSize(500);fits(win.bounds,'small resize');
+ assert(win.bounds.width<small,'asking for a smaller size must shrink the window');
+ assert.equal(win.bounds.width,module.exports.overlayWindowSize(500).width,'window must follow overlayWindowSize');
  assert.equal(macCalls,platform==='darwin'?1:0);
  electron.app.emit('before-quit');console.log(platform+': window startup, transparency, topmost, click-through, display-fitted resize and cleanup passed (API simulation).');
 }

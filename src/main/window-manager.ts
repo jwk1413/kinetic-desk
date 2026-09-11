@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, screen } from "electron";
 import { join } from "node:path";
 import { IpcChannel, type ObjectAnchor } from "../shared/ipc";
-import { WINDOW_HEIGHT, WINDOW_WIDTH, physicsLimits, type InteractionMode } from "../shared/types";
+import { WINDOW_WIDTH, physicsLimits, type InteractionMode } from "../shared/types";
 
 export interface OverlayWindow {
   browserWindow: BrowserWindow;
@@ -57,8 +57,8 @@ function nearestArea(x: number, y: number) {
   return best;
 }
 
-const WIDTH_RATIO = 1.55;
-const HEIGHT_RATIO = (WINDOW_HEIGHT / WINDOW_WIDTH) * 1.22;
+const WIDTH_RATIO = 0.93;
+const HEIGHT_RATIO = 0.93;
 // The overlay is transparent, so an oversized window is invisible but still
 // pushes the object off screen. Keep a margin so the swing stays reachable.
 const SCREEN_MARGIN = 16;
