@@ -1,13 +1,15 @@
 import { app, BrowserWindow, ipcMain, screen } from "electron";
 import { join } from "node:path";
 import { IpcChannel } from "../shared/ipc";
-import { WINDOW_HEIGHT, WINDOW_WIDTH, type InteractionMode } from "../shared/types";
+import { WINDOW_HEIGHT, WINDOW_WIDTH, physicsLimits, type InteractionMode } from "../shared/types";
 
 export interface OverlayWindow {
   browserWindow: BrowserWindow;
   setInteractionMode: (mode: InteractionMode) => void;
   setClickThrough: (ignore: boolean) => void;
   setSize: (size: number) => void;
+  /** Clamps a requested size to what the overlay's current display can hold. */
+  fitSize: (size: number) => number;
   capabilities: {
     transparent: boolean;
     alwaysOnTop: boolean;
@@ -51,17 +53,37 @@ function nearestDisplay(x: number, y: number) {
   return best;
 }
 
+const WIDTH_RATIO = 1.55;
+const HEIGHT_RATIO = (WINDOW_HEIGHT / WINDOW_WIDTH) * 1.22;
+// The overlay is transparent, so an oversized window is invisible but still
+// pushes the object off screen. Keep a margin so the swing stays reachable.
+const SCREEN_MARGIN = 16;
+
 export function overlayWindowSize(size: number): { width: number; height: number } {
-  const width = Math.round(size * 1.55);
-  const height = Math.round(size * (WINDOW_HEIGHT / WINDOW_WIDTH) * 1.22);
+  const width = Math.round(size * WIDTH_RATIO);
+  const height = Math.round(size * HEIGHT_RATIO);
   return { width, height };
+}
+
+/** Largest requested size whose overlay window still fits inside `area`. */
+export function fitSizeToArea(size: number, area: { width: number; height: number }): number {
+  const usableWidth = Math.max(160, area.width - SCREEN_MARGIN * 2);
+  const usableHeight = Math.max(160, area.height - SCREEN_MARGIN * 2);
+  const limit = Math.min(usableWidth / WIDTH_RATIO, usableHeight / HEIGHT_RATIO);
+  return Math.max(physicsLimits.windowSize.min, Math.min(size, Math.floor(limit)));
+}
+
+export function primaryWorkArea() {
+  return screen.getPrimaryDisplay().workArea;
 }
 
 function placeOnPrimary(width: number, height: number) {
   const area = screen.getPrimaryDisplay().workArea;
+  const x = area.x + area.width - width - 28;
+  const y = area.y + Math.max(24, area.height * 0.08);
   return {
-    x: Math.round(area.x + area.width - width - 28),
-    y: Math.round(area.y + Math.max(24, area.height * 0.08)),
+    x: Math.round(clamp(x, area.x, Math.max(area.x, area.x + area.width - width))),
+    y: Math.round(clamp(y, area.y, Math.max(area.y, area.y + area.height - height))),
     width,
     height,
   };
@@ -105,7 +127,7 @@ function withBenchQuery(base: string): string {
 }
 
 export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
-  const { width, height } = overlayWindowSize(size);
+  const { width, height } = overlayWindowSize(fitSizeToArea(size, primaryWorkArea()));
   const initial = placeOnPrimary(width, height);
 
   const browserWindow = new BrowserWindow({
@@ -255,12 +277,18 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
     },
     setSize(nextSize) {
       if (browserWindow.isDestroyed()) return;
-      const { width, height } = overlayWindowSize(nextSize);
+      const { width, height } = overlayWindowSize(overlay.fitSize(nextSize));
       const current = browserWindow.getBounds();
       const x = current.x - (width - current.width) / 2;
       const y = current.y - (height - current.height) / 2;
       const next = clampWindow(x, y, width, height);
       browserWindow.setBounds(next, false);
+    },
+    fitSize(size) {
+      if (browserWindow.isDestroyed()) return fitSizeToArea(size, primaryWorkArea());
+      const bounds = browserWindow.getBounds();
+      const display = screen.getDisplayMatching(bounds) ?? screen.getPrimaryDisplay();
+      return fitSizeToArea(size, display.workArea);
     },
     capabilities,
   };

@@ -1,12 +1,19 @@
 import { app } from "electron";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { defaultPhysicsSettings, physicsLimits, type DisplayFps, type PhysicsSettings } from "../shared/types";
+import {
+  defaultPhysicsSettings,
+  physicsLimits,
+  type DisplayFps,
+  type MotionMode,
+  type PhysicsSettings,
+} from "../shared/types";
 
 export interface StoredSettings {
   physics: PhysicsSettings;
   pivotInertia: boolean;
   displayFps: DisplayFps;
+  motionMode: MotionMode;
 }
 
 const WINDOW_SIZE_MIGRATION: Record<number, number> = {
@@ -46,6 +53,7 @@ export function loadSettings(): StoredSettings {
       physics?: Partial<PhysicsSettings>;
       pivotInertia?: boolean;
       displayFps?: number;
+      motionMode?: string;
     };
     const physics = clampPhysics(migrateWindowSize(parsed.physics ?? parsed));
     const fps = Number(parsed.displayFps) === 60 ? 60 : 30;
@@ -53,9 +61,15 @@ export function loadSettings(): StoredSettings {
       physics,
       pivotInertia: Boolean(parsed.pivotInertia),
       displayFps: fps,
+      motionMode: parsed.motionMode === "natural" ? "natural" : "driven",
     };
   } catch {
-    return { physics: { ...defaultPhysicsSettings }, pivotInertia: false, displayFps: 30 };
+    return {
+      physics: { ...defaultPhysicsSettings },
+      pivotInertia: false,
+      displayFps: 30,
+      motionMode: "driven",
+    };
   }
 }
 
@@ -69,6 +83,5 @@ export function loadPhysics(): PhysicsSettings {
 }
 
 export function savePhysics(physics: PhysicsSettings): void {
-  const current = loadSettings();
-  saveSettings({ physics, pivotInertia: current.pivotInertia, displayFps: current.displayFps });
+  saveSettings({ ...loadSettings(), physics });
 }

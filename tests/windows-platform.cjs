@@ -12,14 +12,19 @@ for(const platform of ['win32','darwin']) {
   loadFile(path){assert(path.endsWith('renderer/index.html'));return Promise.resolve()}
   isDestroyed(){return false} getBounds(){return this.bounds} setBounds(b){this.bounds=b} showInactive(){}
  }
- const screen=Object.assign(new EventEmitter(),{getAllDisplays:()=>[{bounds}],getPrimaryDisplay:()=>({bounds,workArea:bounds})});
+ const screen=Object.assign(new EventEmitter(),{getAllDisplays:()=>[{bounds}],getPrimaryDisplay:()=>({bounds,workArea:bounds}),getDisplayMatching:()=>({bounds,workArea:bounds})});
  const electron={app:new EventEmitter(),screen,BrowserWindow:Window,ipcMain:{removeAllListeners(){},removeHandler(){},on:(k,fn)=>handlers.set(k,fn),handle:(k,fn)=>handlers.set(k,fn)}};
  const module={exports:{}};vm.runInNewContext(code,{module,exports:module.exports,require:id=>id==='electron'?electron:require(id),process:{platform,env:{}},__dirname:'/app/out/main',console});
  const overlay=module.exports.createOverlayWindow(700);const win=overlay.browserWindow;
  win.emit('ready-to-show');assert(win.options.transparent);assert(win.top);assert(win.ignore);
  overlay.setInteractionMode('control');overlay.setClickThrough(false);assert.equal(win.ignore,false);
  overlay.setInteractionMode('passthrough');assert.equal(win.ignore,true);
- overlay.setSize(900);assert.equal(win.bounds.width,1395);
+ const fits=(b,label)=>{assert(b.width<=bounds.width&&b.height<=bounds.height,label+': window larger than the work area');
+  assert(b.x>=bounds.x&&b.y>=bounds.y&&b.x+b.width<=bounds.x+bounds.width&&b.y+b.height<=bounds.y+bounds.height,label+': window placed outside the work area');};
+ fits(win.options,'initial placement');
+ overlay.setSize(900);fits(win.bounds,'oversized resize');
+ assert(win.bounds.width<1395,'a request too large for the display must shrink');
+ overlay.setSize(500);fits(win.bounds,'small resize');assert.equal(win.bounds.width,775);
  assert.equal(macCalls,platform==='darwin'?1:0);
- electron.app.emit('before-quit');console.log(platform+': window startup, transparency, topmost, click-through, resize and cleanup passed (API simulation).');
+ electron.app.emit('before-quit');console.log(platform+': window startup, transparency, topmost, click-through, display-fitted resize and cleanup passed (API simulation).');
 }

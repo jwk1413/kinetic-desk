@@ -11,7 +11,7 @@ import {
 } from "../shared/types";
 import { clampPhysics, loadSettings, saveSettings } from "./store";
 import { createAppTray } from "./tray";
-import { createOverlayWindow } from "./window-manager";
+import { createOverlayWindow, fitSizeToArea, primaryWorkArea } from "./window-manager";
 
 let state: AppState = {
   ...defaultAppState,
@@ -38,7 +38,14 @@ if (!gotLock) {
       physics: saved.physics,
       pivotInertia: saved.pivotInertia,
       displayFps: saved.displayFps,
+      motionMode: saved.motionMode,
     };
+    // A window larger than the screen would park the object off the desktop.
+    const startSize = fitSizeToArea(state.physics.windowSize, primaryWorkArea());
+    if (startSize !== state.physics.windowSize) {
+      console.log(`[kinetic] window size ${state.physics.windowSize} does not fit this display; using ${startSize}`);
+      state = { ...state, physics: { ...state.physics, windowSize: startSize } };
+    }
     if (process.env.KINETIC_BENCH) {
       state = {
         ...state,
@@ -56,7 +63,12 @@ if (!gotLock) {
       };
     }
     if (!process.env.KINETIC_BENCH) {
-      saveSettings({ physics: state.physics, pivotInertia: state.pivotInertia, displayFps: state.displayFps });
+      saveSettings({
+        physics: state.physics,
+        pivotInertia: state.pivotInertia,
+        displayFps: state.displayFps,
+        motionMode: state.motionMode,
+      });
     }
 
     const overlay = createOverlayWindow(state.physics.windowSize);
@@ -84,6 +96,7 @@ if (!gotLock) {
 
     const setMotionMode = (mode: MotionMode) => {
       state = { ...state, motionMode: mode };
+      persist();
       broadcast();
     };
 
@@ -99,7 +112,12 @@ if (!gotLock) {
     };
 
     const persist = () => {
-      saveSettings({ physics: state.physics, pivotInertia: state.pivotInertia, displayFps: state.displayFps });
+      saveSettings({
+        physics: state.physics,
+        pivotInertia: state.pivotInertia,
+        displayFps: state.displayFps,
+        motionMode: state.motionMode,
+      });
     };
 
     const setTrails = (enabled: boolean) => {
@@ -119,7 +137,8 @@ if (!gotLock) {
       broadcast();
     };
 
-    const setPhysics = (physics: PhysicsSettings) => {
+    const setPhysics = (requested: PhysicsSettings) => {
+      const physics = { ...requested, windowSize: overlay.fitSize(requested.windowSize) };
       const sizeChanged = physics.windowSize !== state.physics.windowSize;
       state = { ...state, physics };
       persist();
