@@ -24,7 +24,7 @@ for(const [value,expected] of [[0,1],[4,3],[1.6,2],[NaN,2]])assert.equal(store.c
  const result=await esbuild.build({entryPoints:['src/renderer/src/main.ts'],bundle:true,platform:'browser',format:'iife',write:false,plugins:[{name:'scene-stubs',setup(build){
  build.onResolve({filter:/objects\/double-pendulum$/},()=>({path:'object',namespace:'stub'}));
  build.onResolve({filter:/render\/shapes$/},()=>({path:'shapes',namespace:'stub'}));
- build.onLoad({filter:/.*/,namespace:'stub'},args=>({contents:args.path==='shapes'?'export const invalidateSizeCaches=()=>{}; export const prepareShadowBuffer=()=>{};':`export class DoublePendulumObject { layout(){} applyPhysics(){} consumeWindowShift(){return {x:0,y:0}} dispose(){} hitTest(){return null} update(dt){globalThis.simTime+=dt} draw(){globalThis.draws++} }`,loader:'js'}));
+ build.onLoad({filter:/.*/,namespace:'stub'},args=>({contents:args.path==='shapes'?'export const invalidateSizeCaches=()=>{}; export const prepareShadowBuffer=()=>{};':`export class DoublePendulumObject { origin={x:350,y:360}; layout(){} applyPhysics(){} consumeWindowShift(){return {x:0,y:0}} dispose(){} hitTest(){return null} update(dt){globalThis.simTime+=dt} draw(){globalThis.draws++} }`,loader:'js'}));
  }}]});
  function run(hz,fps,paused,bench,mouse,jitter=false) {
   let now=0,nextId=0;const drawTimes=[];const queue=new Map(),listeners={};let stateListener;
@@ -32,7 +32,7 @@ for(const [value,expected] of [[0,1],[4,3],[1.6,2],[NaN,2]])assert.equal(store.c
   const canvas={getContext:()=>ctx,style:{},getBoundingClientRect:()=>({left:0,top:0}),addEventListener:(k,fn)=>listeners[k]=fn};
   const state={interactionMode:'passthrough',motionMode:'natural',paused,trails:false,pivotInertia:false,displayFps:fps,physics:{windowSize:700,bobCount:2,timeScale:1,style:'bobs'}};
   const sandbox={draws:0,simTime:0,console:{log(){}},URLSearchParams,performance:{now:()=>now},document:{visibilityState:'visible',getElementById:()=>canvas},location:{search:bench?'?bench=1':''},requestAnimationFrame:fn=>{queue.set(++nextId,fn);return nextId},cancelAnimationFrame:id=>queue.delete(id)};
-  sandbox.window={innerWidth:700,innerHeight:720,devicePixelRatio:2,addEventListener:(k,fn)=>listeners[k]=fn,desk:{getState:()=>undefined,onState:fn=>stateListener=fn,ready:()=>stateListener(state),setClickThrough(){},moveWindowBy(){}}};
+  sandbox.window={innerWidth:700,innerHeight:720,devicePixelRatio:2,addEventListener:(k,fn)=>listeners[k]=fn,desk:{getState:()=>undefined,onState:fn=>stateListener=fn,ready:()=>stateListener(state),setClickThrough(){},moveWindowBy(){},setPivotOffset(){}}};
   vm.runInNewContext(result.outputFiles[0].text,sandbox);
   for(let i=1;i<=hz*4;i++){now=i*1000/hz+(jitter && i>1 ? Math.sin(i*1.73)*.8 : 0);const before=sandbox.draws;if(mouse)listeners.pointermove({clientX:i%700,clientY:0,screenX:i,screenY:0});const work=[...queue.values()];queue.clear();work.forEach(fn=>fn(now));if(sandbox.draws>before)drawTimes.push(now);}
   if(jitter && hz===60) {

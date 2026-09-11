@@ -4,6 +4,7 @@ export const IpcChannel = {
   rendererReady: "renderer-ready",
   setClickThrough: "set-click-through",
   moveWindowBy: "move-window-by",
+  setPivotOffset: "set-pivot-offset",
   appState: "app-state",
   getState: "get-state",
   setInteractionMode: "set-interaction-mode",
@@ -45,6 +46,8 @@ export interface DeskApi {
   getState: () => Promise<AppState>;
   setClickThrough: (ignore: boolean) => void;
   moveWindowBy: (dx: number, dy: number) => void;
+  /** Where the grabbable pivot sits inside the window, so the main process can keep it reachable. */
+  setPivotOffset: (x: number, y: number) => void;
   updatePhysics: (physics: Partial<PhysicsSettings>) => void;
   setMotionMode: (mode: AppState["motionMode"]) => void;
   setTrails: (enabled: boolean) => void;

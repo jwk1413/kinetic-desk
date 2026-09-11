@@ -121,22 +121,18 @@ export class DoublePendulumObject implements DeskObject {
     const next = paramsFromPhysics(physics);
     const countChanged = pendulumCount(next) !== pendulumCount(this.params);
     const styleChanged = next.model !== this.params.model;
-    const keepAnchor = this.placed && !styleChanged;
-    const anchor = keepAnchor ? this.canvasAnchor() : null;
+    // Across a style change the anchor means different things (a bob pivot vs
+    // the foot of the stand), so keep the pivot itself where the user put it.
+    const anchor = this.placed && !styleChanged ? this.canvasAnchor() : null;
     this.physics = physics;
     this.params = next;
     this.updateScale();
-    if (styleChanged && next.model === "compound") {
-      this.origin = this.clampedOrigin({
-        x: this.canvasSize.width / 2,
-        y: this.canvasSize.height * 0.38,
-      });
-    } else if (styleChanged) {
-      this.origin = this.clampedOrigin(this.origin);
-    } else if (anchor) {
+    if (anchor) {
       this.placeOriginAtAnchor(anchor);
+    } else {
+      this.origin = this.clampedOrigin(this.origin);
     }
-    this.fitOriginOnCanvas(keepAnchor);
+    this.fitOriginOnCanvas();
     if (countChanged || styleChanged) {
       this.reset();
     }
@@ -613,24 +609,18 @@ export class DoublePendulumObject implements DeskObject {
     };
   }
 
+  /**
+   * The pivot is the one reference point the user actually holds on to: it is
+   * the drag handle and the dashed ring we draw. Anchoring sticks to the foot of
+   * the stand instead made the object ratchet across the desktop whenever style
+   * and size changes were interleaved, because the two styles then disagreed
+   * about what should stay still.
+   */
   private canvasAnchor(): { x: number; y: number } {
-    if (this.params.model === "compound") {
-      return {
-        x: this.origin.x,
-        y: this.origin.y + (STAND_HEIGHT + STAND_BASE_H) * this.visualScale,
-      };
-    }
     return { x: this.origin.x, y: this.origin.y };
   }
 
   private placeOriginAtAnchor(anchor: { x: number; y: number }): void {
-    if (this.params.model === "compound") {
-      this.moveOrigin({
-        x: anchor.x,
-        y: anchor.y - (STAND_HEIGHT + STAND_BASE_H) * this.visualScale,
-      });
-      return;
-    }
     this.moveOrigin({ x: anchor.x, y: anchor.y });
   }
 

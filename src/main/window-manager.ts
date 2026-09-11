@@ -25,6 +25,10 @@ function displayBoundsList() {
   return screen.getAllDisplays().map((display) => display.bounds);
 }
 
+function workAreaList() {
+  return screen.getAllDisplays().map((display) => display.workArea);
+}
+
 function overlapArea(
   a: { x: number; y: number; width: number; height: number },
   b: { x: number; y: number; width: number; height: number },
@@ -34,8 +38,8 @@ function overlapArea(
   return width * height;
 }
 
-function nearestDisplay(x: number, y: number) {
-  const displays = displayBoundsList();
+function nearestArea(x: number, y: number) {
+  const displays = workAreaList();
   let best = displays[0] ?? screen.getPrimaryDisplay().bounds;
   let bestDist = Infinity;
   for (const display of displays) {
@@ -58,6 +62,8 @@ const HEIGHT_RATIO = (WINDOW_HEIGHT / WINDOW_WIDTH) * 1.22;
 // The overlay is transparent, so an oversized window is invisible but still
 // pushes the object off screen. Keep a margin so the swing stays reachable.
 const SCREEN_MARGIN = 16;
+// How close the pivot may get to the edge of its display before it stops.
+const PIVOT_MARGIN = 28;
 
 export function overlayWindowSize(size: number): { width: number; height: number } {
   const width = Math.round(size * WIDTH_RATIO);
@@ -89,17 +95,34 @@ function placeOnPrimary(width: number, height: number) {
   };
 }
 
-function clampWindow(x: number, y: number, width: number, height: number) {
-  const keep = 48;
-  const rect = { x, y, width, height };
-  const visible = displayBoundsList().reduce((sum, display) => sum + overlapArea(rect, display), 0);
-  if (visible >= keep * keep) {
-    return { x: Math.round(x), y: Math.round(y), width, height };
-  }
-  const anchor = nearestDisplay(x + width / 2, y + height / 2);
+/**
+ * Keeps the grabbable pivot on screen rather than the window.
+ *
+ * The overlay is much larger than the object and fully transparent, so a clamp
+ * that only keeps a corner of the *window* on screen happily parks the pendulum
+ * hundreds of pixels outside the desktop, where it can never be grabbed again.
+ * `pivotOffset` is where the renderer currently draws the pivot inside the
+ * window; we clamp that point into the work area of the display nearest to it,
+ * which still lets the object be dragged from one display to another.
+ */
+function clampWindow(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  pivotOffset: { x: number; y: number },
+) {
+  const margin = PIVOT_MARGIN;
+  const pivotX = x + clamp(pivotOffset.x, 0, width);
+  const pivotY = y + clamp(pivotOffset.y, 0, height);
+  const area = nearestArea(pivotX, pivotY);
+  const maxX = Math.max(area.x, area.x + area.width - margin);
+  const maxY = Math.max(area.y, area.y + area.height - margin);
+  const targetX = clamp(pivotX, Math.min(area.x + margin, maxX), maxX);
+  const targetY = clamp(pivotY, Math.min(area.y + margin, maxY), maxY);
   return {
-    x: Math.round(clamp(x, anchor.x - width + keep, anchor.x + anchor.width - keep)),
-    y: Math.round(clamp(y, anchor.y - height + keep, anchor.y + anchor.height - keep)),
+    x: Math.round(x + (targetX - pivotX)),
+    y: Math.round(y + (targetY - pivotY)),
     width,
     height,
   };
@@ -161,13 +184,16 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
 
   let pendingDx = 0;
   let pendingDy = 0;
+  // Where the renderer draws the pivot inside the window. Until it reports,
+  // assume the middle so the clamp behaves like a plain "keep the window on screen".
+  let pivotOffset = { x: width / 2, y: height / 2 };
 
   const keepOnDesktop = () => {
     if (browserWindow.isDestroyed()) return;
     const bounds = browserWindow.getBounds();
     if (intersectsDesktop(bounds)) return;
     const next = placeOnPrimary(bounds.width, bounds.height);
-    browserWindow.setBounds(clampWindow(next.x, next.y, next.width, next.height), false);
+    browserWindow.setBounds(clampWindow(next.x, next.y, next.width, next.height, pivotOffset), false);
   };
 
   browserWindow.setAlwaysOnTop(true, "screen-saver", 1);
@@ -235,6 +261,7 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
 
   ipcMain.removeAllListeners(IpcChannel.setClickThrough);
   ipcMain.removeAllListeners(IpcChannel.moveWindowBy);
+  ipcMain.removeAllListeners(IpcChannel.setPivotOffset);
   ipcMain.removeHandler(IpcChannel.getWindowBounds);
   ipcMain.removeHandler(IpcChannel.getDisplayLayout);
 
@@ -254,8 +281,12 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
     const bounds = browserWindow.getBounds();
     const desiredX = bounds.x + moveX;
     const desiredY = bounds.y + moveY;
-    const next = clampWindow(desiredX, desiredY, bounds.width, bounds.height);
+    const next = clampWindow(desiredX, desiredY, bounds.width, bounds.height, pivotOffset);
     browserWindow.setBounds(next, false);
+  });
+  ipcMain.on(IpcChannel.setPivotOffset, (_event, x: number, y: number) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    pivotOffset = { x, y };
   });
   ipcMain.handle(IpcChannel.getWindowBounds, () => {
     const { x, y } = browserWindow.getBounds();
@@ -277,11 +308,13 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
     },
     setSize(nextSize) {
       if (browserWindow.isDestroyed()) return;
-      const { width, height } = overlayWindowSize(overlay.fitSize(nextSize));
+      const size = overlayWindowSize(overlay.fitSize(nextSize));
       const current = browserWindow.getBounds();
-      const x = current.x - (width - current.width) / 2;
-      const y = current.y - (height - current.height) / 2;
-      const next = clampWindow(x, y, width, height);
+      // Grow from the top-left corner. The renderer keeps the object at the same
+      // canvas coordinates across a resize, so holding the origin still is what
+      // keeps it at the same place on screen; centring would slide it by half
+      // the size change every time.
+      const next = clampWindow(current.x, current.y, size.width, size.height, pivotOffset);
       browserWindow.setBounds(next, false);
     },
     fitSize(size) {
@@ -299,6 +332,7 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
     screen.removeListener("display-removed", keepOnDesktop);
     ipcMain.removeAllListeners(IpcChannel.setClickThrough);
     ipcMain.removeAllListeners(IpcChannel.moveWindowBy);
+    ipcMain.removeAllListeners(IpcChannel.setPivotOffset);
     ipcMain.removeHandler(IpcChannel.getWindowBounds);
     ipcMain.removeHandler(IpcChannel.getDisplayLayout);
   });

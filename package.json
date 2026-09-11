@@ -13,7 +13,9 @@
     "dist": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac",
     "dist:win": "npm run build && electron-builder --win --x64",
     "typecheck": "tsc --noEmit",
-    "test:optimization": "node tests/optimization.cjs"
+    "test": "npm run typecheck && node tests/optimization.cjs && node tests/frame-debug.cjs && node tests/windows-platform.cjs && node tests/object-placement.cjs",
+    "test:optimization": "node tests/optimization.cjs",
+    "test:placement": "node tests/object-placement.cjs"
   },
   "devDependencies": {
     "@types/node": "^26.5.0",

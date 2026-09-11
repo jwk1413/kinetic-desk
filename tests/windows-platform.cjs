@@ -4,7 +4,7 @@ const {EventEmitter}=require('node:events');
 const esbuild=require('esbuild');
 const code=esbuild.buildSync({entryPoints:['src/main/window-manager.ts'],bundle:true,platform:'node',format:'cjs',external:['electron'],write:false}).outputFiles[0].text;
 for(const platform of ['win32','darwin']) {
- const handlers=new Map();const bounds={x:0,y:0,width:1000,height:800};let macCalls=0;
+ const handlers=new Map();const bounds={x:0,y:0,width:1000,height:800};const workArea={x:0,y:25,width:1000,height:775};let macCalls=0;
  class Window extends EventEmitter {
   constructor(options){super();this.options=options;this.webContents=new EventEmitter();this.bounds={...options};if(platform==='darwin')this.setWindowButtonVisibility=()=>macCalls++;}
   setAlwaysOnTop(){this.top=true} setVisibleOnAllWorkspaces(){assert.equal(platform,'darwin')}
@@ -12,15 +12,14 @@ for(const platform of ['win32','darwin']) {
   loadFile(path){assert(path.endsWith('renderer/index.html'));return Promise.resolve()}
   isDestroyed(){return false} getBounds(){return this.bounds} setBounds(b){this.bounds=b} showInactive(){}
  }
- const screen=Object.assign(new EventEmitter(),{getAllDisplays:()=>[{bounds}],getPrimaryDisplay:()=>({bounds,workArea:bounds}),getDisplayMatching:()=>({bounds,workArea:bounds})});
+ const screen=Object.assign(new EventEmitter(),{getAllDisplays:()=>[{bounds,workArea}],getPrimaryDisplay:()=>({bounds,workArea}),getDisplayMatching:()=>({bounds,workArea})});
  const electron={app:new EventEmitter(),screen,BrowserWindow:Window,ipcMain:{removeAllListeners(){},removeHandler(){},on:(k,fn)=>handlers.set(k,fn),handle:(k,fn)=>handlers.set(k,fn)}};
  const module={exports:{}};vm.runInNewContext(code,{module,exports:module.exports,require:id=>id==='electron'?electron:require(id),process:{platform,env:{}},__dirname:'/app/out/main',console});
  const overlay=module.exports.createOverlayWindow(700);const win=overlay.browserWindow;
  win.emit('ready-to-show');assert(win.options.transparent);assert(win.top);assert(win.ignore);
  overlay.setInteractionMode('control');overlay.setClickThrough(false);assert.equal(win.ignore,false);
  overlay.setInteractionMode('passthrough');assert.equal(win.ignore,true);
- const fits=(b,label)=>{assert(b.width<=bounds.width&&b.height<=bounds.height,label+': window larger than the work area');
-  assert(b.x>=bounds.x&&b.y>=bounds.y&&b.x+b.width<=bounds.x+bounds.width&&b.y+b.height<=bounds.y+bounds.height,label+': window placed outside the work area');};
+ const fits=(b,label)=>{assert(b.width<=workArea.width&&b.height<=workArea.height,label+': window larger than the work area');};
  fits(win.options,'initial placement');
  overlay.setSize(900);fits(win.bounds,'oversized resize');
  assert(win.bounds.width<1395,'a request too large for the display must shrink');

@@ -15,6 +15,9 @@ const api: DeskApi = {
   moveWindowBy(dx: number, dy: number) {
     ipcRenderer.send(IpcChannel.moveWindowBy, dx, dy);
   },
+  setPivotOffset(x: number, y: number) {
+    ipcRenderer.send(IpcChannel.setPivotOffset, x, y);
+  },
   updatePhysics(physics: Partial<PhysicsSettings>) {
     ipcRenderer.send(IpcChannel.updatePhysics, physics);
   },
