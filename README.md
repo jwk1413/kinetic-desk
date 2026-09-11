@@ -6,7 +6,7 @@ macOS용. 로그인도 서버도 없고, 아무것도 수집하지 않습니다.
 
 ## 설치
 
-[Releases](https://github.com/jwk1413/kinetic-desk/releases)에서 `.dmg`를 받아 `응용 프로그램`으로 옮깁니다.
+[Releases](https://github.com/jwk1413/kinetic-desk/releases)에서 `.dmg`를 받아 `응용 프로그램`으로 옮깁니다. **Apple Silicon(M 시리즈) 전용입니다.**
 
 **처음 열면 "손상되었기 때문에 열 수 없습니다"가 뜹니다.** 앱이 손상된 게 아니라, Apple 공증(연 $99)을 받지 않아서 macOS가 막는 것입니다. 터미널에 아래 한 줄을 붙여넣으면 풀립니다.
 
@@ -33,7 +33,7 @@ xattr -dr com.apple.quarantine "/Applications/키네틱 데스크.app"
 - 클릭 통과 중에는 창을 눌러서 돌아올 수 없습니다. 메뉴 막대나 `⌘⌥P`를 쓰세요.
 - 게임이 쓰는 완전 독점 전체 화면에는 가려질 수 있습니다. 잠금 화면 위에는 그릴 수 없습니다.
 - 픽셀 단위 창 모양은 OS가 지원하지 않아, 오브제 위일 때만 클릭을 받도록 흉내 냅니다. 경계에서 한 프레임 정도 지연이 있을 수 있습니다.
-- Apple Silicon과 Intel 모두에서 동작하지만, Apple Silicon에서만 확인했습니다.
+- **Apple Silicon(M 시리즈) 전용입니다.** Intel 맥에서는 실행되지 않습니다.
 
 ## 직접 빌드하기
 

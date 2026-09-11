@@ -15,7 +15,7 @@ mac:
   identity: null
   hardenedRuntime: false
   gatekeeperAssess: false
-  artifactName: ${productName}-${version}-mac.${ext}
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
 win:
   icon: build/icon.ico
   executableName: KineticDesk
@@ -32,4 +32,4 @@ nsis:
   createStartMenuShortcut: true
   deleteAppDataOnUninstall: false
 dmg:
-  artifactName: ${productName}-${version}-mac.${ext}
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
