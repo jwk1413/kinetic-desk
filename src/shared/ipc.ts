@@ -4,6 +4,7 @@ export const IpcChannel = {
   rendererReady: "renderer-ready",
   setClickThrough: "set-click-through",
   moveWindowBy: "move-window-by",
+  dragObjectTo: "drag-object-to",
   setObjectAnchor: "set-object-anchor",
   appState: "app-state",
   getState: "get-state",
@@ -30,6 +31,8 @@ export interface ObjectAnchor {
   pivotY: number;
   /** How far past the pivot the object reaches before it stops being graspable. */
   reach: number;
+  /** True while the user is dragging the object, when the pivot moving *is* the point. */
+  dragging: boolean;
 }
 
 export interface WindowOrigin {
@@ -62,6 +65,12 @@ export interface DeskApi {
   moveWindowBy: (dx: number, dy: number, keepInReach?: boolean) => void;
   /** Where the object hangs inside the window, so the main process can keep it reachable. */
   setObjectAnchor: (anchor: ObjectAnchor) => void;
+  /**
+   * Puts the object at this screen position. Dragging sends where the object
+   * should be, not how far to nudge it, so that stopping at the edge of a
+   * display cannot leave it trailing behind the cursor for the rest of the drag.
+   */
+  dragObjectTo: (x: number, y: number) => void;
   updatePhysics: (physics: Partial<PhysicsSettings>) => void;
   setMotionMode: (mode: AppState["motionMode"]) => void;
   setTrails: (enabled: boolean) => void;

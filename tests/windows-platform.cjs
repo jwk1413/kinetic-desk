@@ -6,7 +6,7 @@ const code=esbuild.buildSync({entryPoints:['src/main/window-manager.ts'],bundle:
 for(const platform of ['win32','darwin']) {
  const handlers=new Map();const bounds={x:0,y:0,width:1000,height:800};const workArea={x:0,y:25,width:1000,height:775};let macCalls=0;
  class Window extends EventEmitter {
-  constructor(options){super();this.options=options;this.webContents=new EventEmitter();this.bounds={...options};if(platform==='darwin')this.setWindowButtonVisibility=()=>macCalls++;}
+  constructor(options){super();this.options=options;this.webContents=Object.assign(new EventEmitter(),{isDestroyed:()=>false,send(){}});this.bounds={...options};if(platform==='darwin')this.setWindowButtonVisibility=()=>macCalls++;}
   setAlwaysOnTop(){this.top=true} setVisibleOnAllWorkspaces(){assert.equal(platform,'darwin')}
   setIgnoreMouseEvents(v){this.ignore=v} setFocusable(v=true){this.focusable=v} isFocusable(){return this.focusable!==false} isFocused(){return false} blur(){} isAlwaysOnTop(){return this.top}
   loadFile(path){assert(path.endsWith('renderer/index.html'));return Promise.resolve()}

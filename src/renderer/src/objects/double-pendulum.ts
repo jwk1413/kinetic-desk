@@ -97,6 +97,7 @@ export class DoublePendulumObject implements DeskObject {
   private stickStartKick = true;
   private stickGrab: StickGrab | null = null;
   private windowShift = { x: 0, y: 0 };
+  private windowOrigin = { x: 0, y: 0 };
 
   layout(width: number, height: number): void {
     const previous = this.canvasSize;
@@ -156,12 +157,21 @@ export class DoublePendulumObject implements DeskObject {
    * around whenever it was resized near an edge, and walled it off from the
    * neighbouring display entirely.
    */
-  anchorInfo(): { pivotX: number; pivotY: number; reach: number } {
+  anchorInfo(): { pivotX: number; pivotY: number; reach: number; dragging: boolean } {
     const first = jointSpan(this.params, 0) * this.scale;
     const extra = this.params.model === "compound"
       ? this.stickRadii().pin
       : Math.max(...this.radii().bobs);
-    return { pivotX: this.origin.x, pivotY: this.origin.y, reach: first + extra };
+    return {
+      pivotX: this.origin.x,
+      pivotY: this.origin.y,
+      reach: first + extra,
+      dragging: this.dragging !== null,
+    };
+  }
+
+  private pivotOnScreen(): { x: number; y: number } {
+    return { x: this.windowOrigin.x + this.origin.x, y: this.windowOrigin.y + this.origin.y };
   }
 
   consumeWindowShift(): { x: number; y: number } {
@@ -236,6 +246,10 @@ export class DoublePendulumObject implements DeskObject {
       x: typeof meta.screenX === "number" ? meta.screenX : x,
       y: typeof meta.screenY === "number" ? meta.screenY : y,
     };
+    this.windowOrigin = {
+      x: typeof meta.windowX === "number" ? meta.windowX : 0,
+      y: typeof meta.windowY === "number" ? meta.windowY : 0,
+    };
     const now = performance.now();
     if (index !== null) {
       const pivot = rodSegments(this.state, this.origin, this.scale, this.params)[index]?.pivot ?? this.origin;
@@ -252,7 +266,7 @@ export class DoublePendulumObject implements DeskObject {
       this.stickGrab = null;
     }
     if (this.dragging === "pivot") {
-      this.pivotSamples.push({ time: now, x: this.dragScreen.x, y: this.dragScreen.y });
+      this.pivotSamples.push({ time: now, ...this.pivotOnScreen() });
     }
   }
 
@@ -272,8 +286,15 @@ export class DoublePendulumObject implements DeskObject {
     this.dragPointer = { x, y };
     this.dragScreen = { x: screenX, y: screenY };
     const now = performance.now();
+    if (typeof meta.windowX === "number" && typeof meta.windowY === "number") {
+      this.windowOrigin = { x: meta.windowX, y: meta.windowY };
+    }
     if (this.draggingPivotInertia()) {
-      this.pivotSamples.push({ time: now, x: screenX, y: screenY });
+      // Sample where the object actually is, not where the cursor is. When a
+      // clamp stops the object at the edge of a display the cursor keeps going,
+      // and treating that as pivot motion pumped enough energy into the physics
+      // to spin the pendulum out and flood the log with velocity clamps.
+      this.pivotSamples.push({ time: now, ...this.pivotOnScreen() });
       this.pivotSamples = pruneSamples(this.pivotSamples, now, SAMPLE_KEEP_MS);
       this.updatePivotAccel(now);
     }
@@ -382,8 +403,10 @@ export class DoublePendulumObject implements DeskObject {
       this.state = driveTowardEnergy(this.state, this.params, restEnergy(this.params) + driveEnergy, dt);
     }
     const limit = sticks ? STICK_OMEGA_LIMIT : MAX_OMEGA;
+    // Swinging the pivot hard pumps the pendulum, so hitting the limit is normal
+    // and happens every step while it lasts. It is not worth a line of log each
+    // time — that filled the console during a single drag.
     if (this.state.omega.some((omega) => Math.abs(omega) > limit)) {
-      console.log("[kinetic] omega clamp", this.state.omega.map((omega) => omega.toFixed(2)).join(","));
       this.state = clampVelocities(this.state, limit);
     }
     if (!isFiniteState(this.state)) {

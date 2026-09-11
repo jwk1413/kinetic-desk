@@ -196,7 +196,7 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
 
   // What the renderer draws inside the window. Until it reports, assume the
   // middle so the clamp behaves like a plain "keep the window on screen".
-  let objectAnchor: ObjectAnchor = { pivotX: width / 2, pivotY: height / 2, reach: 0 };
+  let objectAnchor: ObjectAnchor = { pivotX: width / 2, pivotY: height / 2, reach: 0, dragging: false };
   // Where the pivot should sit on screen, kept in full precision. Window bounds
   // are whole pixels, so re-deriving this from them on every resize rounded the
   // anchor a little each time and the object slowly walked across the desktop.
@@ -206,13 +206,23 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
   // dragging it changes the anchor, so nothing else can nudge the object about.
   let anchor: { x: number; y: number } | null = null;
 
+  const applyBounds = (next: { x: number; y: number; width: number; height: number }) => {
+    browserWindow.setBounds(next, false);
+    // Tell the renderer where the window actually landed. Drag inertia is
+    // measured from the object's real movement, and a clamped move means the
+    // object did not move at all however far the cursor went.
+    if (!browserWindow.webContents.isDestroyed()) {
+      browserWindow.webContents.send(IpcChannel.windowBounds, { x: next.x, y: next.y });
+    }
+  };
+
   const placeToAnchor = () => {
     if (anchor === null || browserWindow.isDestroyed()) return;
     const bounds = browserWindow.getBounds();
     const x = Math.round(anchor.x - objectAnchor.pivotX);
     const y = Math.round(anchor.y - objectAnchor.pivotY);
     if (x === bounds.x && y === bounds.y) return;
-    browserWindow.setBounds({ x, y, width: bounds.width, height: bounds.height }, false);
+    applyBounds({ x, y, width: bounds.width, height: bounds.height });
   };
 
   const keepOnDesktop = () => {
@@ -220,7 +230,7 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
     const bounds = browserWindow.getBounds();
     if (intersectsDesktop(bounds)) return;
     const next = placeOnPrimary(bounds.width, bounds.height);
-    browserWindow.setBounds(clampWindow(next.x, next.y, next.width, next.height, objectAnchor), false);
+    applyBounds(clampWindow(next.x, next.y, next.width, next.height, objectAnchor));
   };
 
   browserWindow.setAlwaysOnTop(true, "screen-saver", 1);
@@ -288,6 +298,7 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
 
   ipcMain.removeAllListeners(IpcChannel.setClickThrough);
   ipcMain.removeAllListeners(IpcChannel.moveWindowBy);
+  ipcMain.removeAllListeners(IpcChannel.dragObjectTo);
   ipcMain.removeAllListeners(IpcChannel.setObjectAnchor);
   ipcMain.removeHandler(IpcChannel.getWindowBounds);
   ipcMain.removeHandler(IpcChannel.getDisplayLayout);
@@ -312,12 +323,34 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
     );
     anchor = { x: moved.x + objectAnchor.pivotX, y: moved.y + objectAnchor.pivotY };
     placeToAnchor();
+    if (!browserWindow.isDestroyed()) {
+      const landed = browserWindow.getBounds();
+      browserWindow.webContents.send(IpcChannel.windowBounds, { x: landed.x, y: landed.y });
+    }
+  });
+  ipcMain.on(IpcChannel.dragObjectTo, (_event, x: number, y: number) => {
+    if (browserWindow.isDestroyed()) return;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const bounds = browserWindow.getBounds();
+    const placed = clampWindow(
+      x - objectAnchor.pivotX,
+      y - objectAnchor.pivotY,
+      bounds.width,
+      bounds.height,
+      objectAnchor,
+    );
+    anchor = { x: placed.x + objectAnchor.pivotX, y: placed.y + objectAnchor.pivotY };
+    placeToAnchor();
+    browserWindow.webContents.send(IpcChannel.windowBounds, { x: placed.x, y: placed.y });
   });
   ipcMain.on(IpcChannel.setObjectAnchor, (_event, next: ObjectAnchor) => {
     if (!next) return;
     if (![next.pivotX, next.pivotY, next.reach].every(Number.isFinite)) return;
     objectAnchor = next;
-    if (anchor === null) {
+    // While the user drags, the pivot moving inside the window *is* the object
+    // moving: the anchor follows it. Pulling the window back to the old anchor
+    // instead fought the drag and left the object far behind the cursor.
+    if (next.dragging || anchor === null) {
       const bounds = browserWindow.getBounds();
       anchor = { x: bounds.x + next.pivotX, y: bounds.y + next.pivotY };
       return;
@@ -358,10 +391,7 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
       const held = anchor ?? { x: current.x + objectAnchor.pivotX, y: current.y + objectAnchor.pivotY };
       anchor = held;
       objectAnchor = { ...objectAnchor, pivotX, pivotY };
-      browserWindow.setBounds(
-        { x: Math.round(held.x - pivotX), y: Math.round(held.y - pivotY), ...size },
-        false,
-      );
+      applyBounds({ x: Math.round(held.x - pivotX), y: Math.round(held.y - pivotY), ...size });
     },
     fitSize(size) {
       if (browserWindow.isDestroyed()) return fitSizeToArea(size, primaryWorkArea());
@@ -378,6 +408,7 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
     screen.removeListener("display-removed", keepOnDesktop);
     ipcMain.removeAllListeners(IpcChannel.setClickThrough);
     ipcMain.removeAllListeners(IpcChannel.moveWindowBy);
+    ipcMain.removeAllListeners(IpcChannel.dragObjectTo);
     ipcMain.removeAllListeners(IpcChannel.setObjectAnchor);
     ipcMain.removeHandler(IpcChannel.getWindowBounds);
     ipcMain.removeHandler(IpcChannel.getDisplayLayout);

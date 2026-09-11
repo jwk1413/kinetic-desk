@@ -34,7 +34,6 @@ let lastTime = performance.now();
 let nextDraw = 0;
 let scheduledFps = 0;
 let lastMouse = { x: 0, y: 0 };
-let lastScreen = { x: 0, y: 0 };
 let frames = 0;
 let fpsTime = performance.now();
 let viewWidth = WINDOW_WIDTH;
@@ -43,6 +42,11 @@ let dirty = true;
 let loopActive = false;
 let rafId = 0;
 let wasHidden = document.visibilityState === "hidden";
+// Kept up to date by the main process so drag inertia can be measured from the
+// object's real position on screen rather than from the cursor.
+let windowOrigin = { x: 0, y: 0 };
+// Where the cursor sits relative to the pivot at the moment the drag starts.
+let grabOffset = { x: 0, y: 0 };
 
 function primary(): DoublePendulumObject {
   return objects[0];
@@ -214,13 +218,18 @@ function onPointerDown(event: PointerEvent): void {
   hovered = hit.part;
   hoverObject = hit.object;
   lastMouse = point;
-  lastScreen = { x: event.screenX, y: event.screenY };
   pointerId = event.pointerId;
+  grabOffset = {
+    x: event.screenX - (windowOrigin.x + hit.object.origin.x),
+    y: event.screenY - (windowOrigin.y + hit.object.origin.y),
+  };
   canvas.setPointerCapture(event.pointerId);
   hit.object.beginDrag({ part: hit.part }, point.x, point.y, {
     pivotInertia: appState.pivotInertia,
     screenX: event.screenX,
     screenY: event.screenY,
+    windowX: windowOrigin.x,
+    windowY: windowOrigin.y,
   });
   canvas.style.cursor = cursorFor(hit.part);
   syncFrameDebug();
@@ -236,7 +245,6 @@ function onPointerMove(event: PointerEvent): void {
       markDirty();
     }
     lastMouse = pointer(event);
-    lastScreen = { x: event.screenX, y: event.screenY };
     return;
   }
   const point = pointer(event);
@@ -251,22 +259,22 @@ function onPointerMove(event: PointerEvent): void {
 
   if (!dragging || !dragObject || appState.interactionMode !== "control") {
     lastMouse = point;
-    lastScreen = { x: event.screenX, y: event.screenY };
     return;
   }
 
   if (movesOverlay(dragging) && dragObject === primary()) {
-    const dx = event.screenX - lastScreen.x;
-    const dy = event.screenY - lastScreen.y;
-    if (dx !== 0 || dy !== 0) {
-      const overflow = primary().shiftBy(dx, dy);
-      pushObjectAnchor();
-      if (overflow.x !== 0 || overflow.y !== 0) desk?.moveWindowBy(overflow.x, overflow.y);
-    }
+    // Send where the object should be, not how far to move it. Nudges get lost
+    // whenever a clamp refuses one, and the object ends up trailing the cursor.
+    pushObjectAnchor();
+    desk?.dragObjectTo(event.screenX - grabOffset.x, event.screenY - grabOffset.y);
   }
-  dragObject.dragTo(point.x, point.y, { screenX: event.screenX, screenY: event.screenY });
+  dragObject.dragTo(point.x, point.y, {
+    screenX: event.screenX,
+    screenY: event.screenY,
+    windowX: windowOrigin.x,
+    windowY: windowOrigin.y,
+  });
   lastMouse = point;
-  lastScreen = { x: event.screenX, y: event.screenY };
 }
 
 function onPointerUp(event: PointerEvent): void {
@@ -426,6 +434,14 @@ window.addEventListener("kinetic-reset", () => {
   syncClickThrough(false);
   canvas.style.cursor = cursorFor(null);
   markDirty();
+});
+
+desk?.onWindowBounds((origin) => {
+  windowOrigin = origin;
+});
+
+void desk?.getWindowBounds()?.then((origin) => {
+  windowOrigin = origin;
 });
 
 desk?.onState((next) => {

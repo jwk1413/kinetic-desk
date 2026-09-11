@@ -18,6 +18,9 @@ const api: DeskApi = {
   setObjectAnchor(anchor: ObjectAnchor) {
     ipcRenderer.send(IpcChannel.setObjectAnchor, anchor);
   },
+  dragObjectTo(x: number, y: number) {
+    ipcRenderer.send(IpcChannel.dragObjectTo, x, y);
+  },
   updatePhysics(physics: Partial<PhysicsSettings>) {
     ipcRenderer.send(IpcChannel.updatePhysics, physics);
   },

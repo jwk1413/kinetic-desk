@@ -5,6 +5,9 @@ export interface HitResult {
 }
 
 export interface DragMeta {
+  /** Top-left of the overlay window, so drag inertia can follow the object itself. */
+  windowX?: number;
+  windowY?: number;
   pivotInertia?: boolean;
   screenX?: number;
   screenY?: number;

@@ -21,6 +21,12 @@ const SRC = {
 };
 const quiet = { log() {}, warn() {}, error() {} };
 
+// The object measures drag inertia against the clock, so the rig drives one.
+// With a clock that never advances the whole inertia path is skipped and a test
+// built on it would prove nothing.
+const clock = { now: 0 };
+const fakeClock = { now: () => clock.now };
+
 function loadModule(code, sandbox) {
   const module = { exports: {} };
   vm.runInNewContext(code, { module, exports: module.exports, require, console: quiet, ...sandbox });
@@ -44,7 +50,7 @@ function makeRig(displays) {
     constructor(options) {
       super();
       this.options = options;
-      this.webContents = new EventEmitter();
+      this.webContents = Object.assign(new EventEmitter(), { isDestroyed: () => false, send() {} });
       this.bounds = { x: options.x, y: options.y, width: options.width, height: options.height };
     }
     setAlwaysOnTop() {} setVisibleOnAllWorkspaces() {} setWindowButtonVisibility() {}
@@ -78,7 +84,7 @@ function makeRig(displays) {
     process: { platform: 'darwin', env: {} }, __dirname: '/app/out/main',
   });
   const { DoublePendulumObject } = loadModule(SRC.object, {
-    performance, document: { createElement: () => ({ getContext: () => null }) },
+    performance: fakeClock, document: { createElement: () => ({ getContext: () => null }) },
   });
   const { clampPhysics } = loadModule(SRC.store, {
     require: (id) => (id === 'electron' ? { app: { getPath: () => '/tmp' } } : require(id)),
@@ -88,6 +94,7 @@ function makeRig(displays) {
   const overlay = wm.createOverlayWindow(700);
   const win = overlay.browserWindow;
   const moveWindowBy = (dx, dy, keepInReach) => handlers.get('move-window-by')(null, dx, dy, keepInReach);
+  const dragObjectTo = (x, y) => handlers.get('drag-object-to')(null, x, y);
   const reportAnchor = () => {
     const fn = handlers.get('set-object-anchor');
     if (fn) fn(null, object.anchorInfo());
@@ -135,10 +142,36 @@ function makeRig(displays) {
       return on(p.x, p.y) && on(p.x, p.y + reach);
     },
     sync() { object.layout(win.bounds.width, win.bounds.height); flush(); },
+    /**
+     * A pointer drag of the pivot, the way the renderer performs one: the cursor
+     * moves in screen coordinates and the canvas position follows the window.
+     */
+    dragPivot(totalX, totalY, steps, env) {
+      let mouseX = win.bounds.x + object.origin.x;
+      let mouseY = win.bounds.y + object.origin.y;
+      const grabX = mouseX - (win.bounds.x + object.origin.x);
+      const grabY = mouseY - (win.bounds.y + object.origin.y);
+      const meta = () => ({ screenX: mouseX, screenY: mouseY, windowX: win.bounds.x, windowY: win.bounds.y });
+      clock.now += 1000 / 60;
+      object.beginDrag({ part: 'pivot' }, object.origin.x, object.origin.y, { pivotInertia: true, ...meta() });
+      for (let i = 0; i < steps; i += 1) {
+        clock.now += 1000 / 60;
+        mouseX += totalX / steps;
+        mouseY += totalY / steps;
+        reportAnchor();
+        dragObjectTo(mouseX - grabX, mouseY - grabY);
+        object.dragTo(mouseX - win.bounds.x, mouseY - win.bounds.y, meta());
+        rig.sync();
+        object.update(1 / 60, env);
+      }
+      object.endDrag();
+    },
+    omega: () => object.state.omega.slice(),
+    /** Drags the object by asking for an absolute position, as the renderer does. */
     drag(dx, dy) {
-      const overflow = object.shiftBy(dx, dy);
+      const p = rig.pivot();
       reportAnchor();
-      if (overflow.x !== 0 || overflow.y !== 0) moveWindowBy(overflow.x, overflow.y, true);
+      dragObjectTo(p.x + dx, p.y + dy);
     },
     setStyle(style) { physics = clampPhysics({ ...physics, style }); object.applyPhysics(physics); flush(); },
     setSize(size) {
@@ -275,4 +308,35 @@ for (const [label, displays] of DISPLAYS) {
   }
 }
 
-console.log('Object placement: pivot stays grabbable from every corner, and style/size changes neither move nor ratchet it.');
+// 7. Dragging past the edge of a display must not shake the pendulum apart.
+// Inertia used to be measured from the cursor, so a clamped object — cursor
+// still moving, object standing still — looked like enormous acceleration. It
+// pumped the physics until the velocity clamp fired every step, filling the log
+// and flinging the pendulum out of sight.
+{
+  const noisy = [];
+  const realLog = console.log;
+  console.log = (...args) => { if (String(args[0]).startsWith('[kinetic]')) noisy.push(String(args[0])); };
+  try {
+    for (const [label, displays] of DISPLAYS) {
+      for (const style of ['bobs', 'sticks']) {
+        const rig = makeRig(displays);
+        rig.setStyle(style);
+        const env = { paused: false, motionMode: 'driven', trails: false };
+        for (const [dx, dy] of [[6000, 0], [-6000, 0], [0, 4000], [0, -4000], [6000, 4000]]) {
+          rig.dragPivot(dx, dy, 300, env);
+          assert(rig.onScreen(), `${label} ${style}: 화면 밖으로 끌려나감 ${JSON.stringify(rig.pivot())}`);
+          for (const w of rig.omega()) {
+            assert(Number.isFinite(w), `${label} ${style}: 드래그 중 물리가 발산함`);
+            assert(Math.abs(w) <= 20, `${label} ${style}: 드래그가 진자를 ${w.toFixed(1)} rad/s 로 돌려버림`);
+          }
+        }
+      }
+    }
+  } finally {
+    console.log = realLog;
+  }
+  assert.equal(noisy.length, 0, `드래그 중 경고가 ${noisy.length}번 찍힘: ${noisy[0]}`);
+}
+
+console.log('Object placement: the object stays put through resizes, crosses displays, and survives being dragged past the edge.');
