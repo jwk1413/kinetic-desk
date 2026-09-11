@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import { IpcChannel, type DeskApi, type DisplayLayout, type ObjectBox, type WindowOrigin } from "../shared/ipc";
+import { IpcChannel, type DeskApi, type DisplayLayout, type ObjectAnchor, type WindowOrigin } from "../shared/ipc";
 import type { AppState, MotionMode, PhysicsSettings } from "../shared/types";
 
 const api: DeskApi = {
@@ -12,11 +12,11 @@ const api: DeskApi = {
   setClickThrough(ignore: boolean) {
     ipcRenderer.send(IpcChannel.setClickThrough, ignore);
   },
-  moveWindowBy(dx: number, dy: number) {
-    ipcRenderer.send(IpcChannel.moveWindowBy, dx, dy);
+  moveWindowBy(dx: number, dy: number, keepInReach = true) {
+    ipcRenderer.send(IpcChannel.moveWindowBy, dx, dy, keepInReach);
   },
-  setObjectBox(box: ObjectBox) {
-    ipcRenderer.send(IpcChannel.setObjectBox, box);
+  setObjectAnchor(anchor: ObjectAnchor) {
+    ipcRenderer.send(IpcChannel.setObjectAnchor, anchor);
   },
   updatePhysics(physics: Partial<PhysicsSettings>) {
     ipcRenderer.send(IpcChannel.updatePhysics, physics);

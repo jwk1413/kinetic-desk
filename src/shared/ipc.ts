@@ -4,7 +4,7 @@ export const IpcChannel = {
   rendererReady: "renderer-ready",
   setClickThrough: "set-click-through",
   moveWindowBy: "move-window-by",
-  setObjectBox: "set-object-box",
+  setObjectAnchor: "set-object-anchor",
   appState: "app-state",
   getState: "get-state",
   setInteractionMode: "set-interaction-mode",
@@ -23,15 +23,13 @@ export const IpcChannel = {
   benchResult: "bench-result",
 } as const;
 
-/** The object's footprint inside the window, in canvas pixels. */
-export interface ObjectBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+/** Where the object hangs inside the window, in canvas pixels. */
+export interface ObjectAnchor {
   /** The pivot, which the renderer holds at a fixed fraction of the canvas. */
   pivotX: number;
   pivotY: number;
+  /** How far past the pivot the object reaches before it stops being graspable. */
+  reach: number;
 }
 
 export interface WindowOrigin {
@@ -56,9 +54,14 @@ export interface DeskApi {
   ready: () => void;
   getState: () => Promise<AppState>;
   setClickThrough: (ignore: boolean) => void;
-  moveWindowBy: (dx: number, dy: number) => void;
-  /** What the object covers inside the window, so the main process can keep it on screen. */
-  setObjectBox: (box: ObjectBox) => void;
+  /**
+   * Moves the overlay. `keepInReach` is for the user dragging the object, which
+   * must not leave the desktop; layout corrections pass false, because they only
+   * cancel out a move the renderer just made and must not shift the object.
+   */
+  moveWindowBy: (dx: number, dy: number, keepInReach?: boolean) => void;
+  /** Where the object hangs inside the window, so the main process can keep it reachable. */
+  setObjectAnchor: (anchor: ObjectAnchor) => void;
   updatePhysics: (physics: Partial<PhysicsSettings>) => void;
   setMotionMode: (mode: AppState["motionMode"]) => void;
   setTrails: (enabled: boolean) => void;

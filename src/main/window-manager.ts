@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, screen } from "electron";
 import { join } from "node:path";
-import { IpcChannel, type ObjectBox } from "../shared/ipc";
+import { IpcChannel, type ObjectAnchor } from "../shared/ipc";
 import { WINDOW_HEIGHT, WINDOW_WIDTH, physicsLimits, type InteractionMode } from "../shared/types";
 
 export interface OverlayWindow {
@@ -62,9 +62,9 @@ const HEIGHT_RATIO = (WINDOW_HEIGHT / WINDOW_WIDTH) * 1.22;
 // The overlay is transparent, so an oversized window is invisible but still
 // pushes the object off screen. Keep a margin so the swing stays reachable.
 const SCREEN_MARGIN = 16;
-// How close the object may get to the edge of its display before it stops.
-// The reported box already carries the object's own padding.
-const EDGE_MARGIN = 8;
+// The object may always come this close to the outer edge of the desktop, even
+// when it is small.
+const MIN_EDGE_MARGIN = 24;
 
 export function overlayWindowSize(size: number): { width: number; height: number } {
   const width = Math.round(size * WIDTH_RATIO);
@@ -106,21 +106,35 @@ function placeOnPrimary(width: number, height: number) {
  * window; we clamp that point into the work area of the display nearest to it,
  * which still lets the object be dragged from one display to another.
  */
-/** Slides `start`..`start + span` inside `min`..`max`, centring it if it cannot fit. */
-function fitSpan(start: number, span: number, min: number, max: number): number {
-  if (span >= max - min) return min + (max - min - span) / 2;
-  return clamp(start, min, max - span);
+function areaAt(x: number, y: number) {
+  return workAreaList().find((a) => x >= a.x && x < a.x + a.width && y >= a.y && y < a.y + a.height) ?? null;
 }
 
-function clampWindow(x: number, y: number, width: number, height: number, box: ObjectBox) {
-  const boxX = x + box.x;
-  const boxY = y + box.y;
-  const area = nearestArea(boxX + box.width / 2, boxY + box.height / 2);
-  const targetX = fitSpan(boxX, box.width, area.x + EDGE_MARGIN, area.x + area.width - EDGE_MARGIN);
-  const targetY = fitSpan(boxY, box.height, area.y + EDGE_MARGIN, area.y + area.height - EDGE_MARGIN);
+/**
+ * Keeps the object reachable without walling it into one display.
+ *
+ * Only the outer rim of the desktop is a wall. Where another display sits just
+ * past an edge, that edge is left open so the object can be dragged across the
+ * seam; once the pivot lands on the neighbour, that display's own edges take
+ * over. Clamping the object's whole swing inside a single display instead made
+ * it impossible to move between monitors at all.
+ */
+function clampWindow(x: number, y: number, width: number, height: number, anchor: ObjectAnchor) {
+  const pivotX = x + anchor.pivotX;
+  const pivotY = y + anchor.pivotY;
+  const area = areaAt(pivotX, pivotY) ?? nearestArea(pivotX, pivotY);
+  const margin = Math.max(MIN_EDGE_MARGIN, Math.min(anchor.reach, area.width / 3, area.height / 3));
+  const open = (px: number, py: number) => areaAt(px, py) !== null;
+  const probe = 2;
+  const minX = open(area.x - probe, pivotY) ? -Infinity : area.x + margin;
+  const maxX = open(area.x + area.width + probe, pivotY) ? Infinity : area.x + area.width - margin;
+  const minY = open(pivotX, area.y - probe) ? -Infinity : area.y + margin;
+  const maxY = open(pivotX, area.y + area.height + probe) ? Infinity : area.y + area.height - margin;
+  const targetX = clamp(pivotX, Math.min(minX, maxX), maxX);
+  const targetY = clamp(pivotY, Math.min(minY, maxY), maxY);
   return {
-    x: Math.round(x + (targetX - boxX)),
-    y: Math.round(y + (targetY - boxY)),
+    x: Math.round(x + (targetX - pivotX)),
+    y: Math.round(y + (targetY - pivotY)),
     width,
     height,
   };
@@ -180,24 +194,33 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
     },
   });
 
-  let pendingDx = 0;
-  let pendingDy = 0;
   // What the renderer draws inside the window. Until it reports, assume the
   // middle so the clamp behaves like a plain "keep the window on screen".
-  let objectBox: ObjectBox = { x: width / 4, y: height / 4, width: width / 2, height: height / 2, pivotX: width / 2, pivotY: height / 2 };
+  let objectAnchor: ObjectAnchor = { pivotX: width / 2, pivotY: height / 2, reach: 0 };
   // Where the pivot should sit on screen, kept in full precision. Window bounds
   // are whole pixels, so re-deriving this from them on every resize rounded the
   // anchor a little each time and the object slowly walked across the desktop.
+  // Where the pivot belongs on screen, in full precision. This is the one place
+  // the object's position lives: the renderer says where it sits inside the
+  // window, and the window is then placed so it lands here. Only the user
+  // dragging it changes the anchor, so nothing else can nudge the object about.
   let anchor: { x: number; y: number } | null = null;
-  let expectedPivot: { x: number; y: number } | null = null;
-  let expectedMisses = 0;
+
+  const placeToAnchor = () => {
+    if (anchor === null || browserWindow.isDestroyed()) return;
+    const bounds = browserWindow.getBounds();
+    const x = Math.round(anchor.x - objectAnchor.pivotX);
+    const y = Math.round(anchor.y - objectAnchor.pivotY);
+    if (x === bounds.x && y === bounds.y) return;
+    browserWindow.setBounds({ x, y, width: bounds.width, height: bounds.height }, false);
+  };
 
   const keepOnDesktop = () => {
     if (browserWindow.isDestroyed()) return;
     const bounds = browserWindow.getBounds();
     if (intersectsDesktop(bounds)) return;
     const next = placeOnPrimary(bounds.width, bounds.height);
-    browserWindow.setBounds(clampWindow(next.x, next.y, next.width, next.height, objectBox), false);
+    browserWindow.setBounds(clampWindow(next.x, next.y, next.width, next.height, objectAnchor), false);
   };
 
   browserWindow.setAlwaysOnTop(true, "screen-saver", 1);
@@ -265,7 +288,7 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
 
   ipcMain.removeAllListeners(IpcChannel.setClickThrough);
   ipcMain.removeAllListeners(IpcChannel.moveWindowBy);
-  ipcMain.removeAllListeners(IpcChannel.setObjectBox);
+  ipcMain.removeAllListeners(IpcChannel.setObjectAnchor);
   ipcMain.removeHandler(IpcChannel.getWindowBounds);
   ipcMain.removeHandler(IpcChannel.getDisplayLayout);
 
@@ -273,56 +296,33 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
     hoverClickThrough = ignore || interactionMode === "passthrough";
     applyClickThrough();
   });
-  ipcMain.on(IpcChannel.moveWindowBy, (_event, dx: number, dy: number) => {
+  ipcMain.on(IpcChannel.moveWindowBy, (_event, dx: number, dy: number, keepInReach = true) => {
     if (browserWindow.isDestroyed()) return;
-    pendingDx += dx;
-    pendingDy += dy;
-    const moveX = Math.round(pendingDx);
-    const moveY = Math.round(pendingDy);
-    if (moveX === 0 && moveY === 0) return;
-    pendingDx -= moveX;
-    pendingDy -= moveY;
+    // Layout corrections are already handled: the window follows the anchor on
+    // every report, so a correction would only move the object twice.
+    if (!keepInReach) return;
     const bounds = browserWindow.getBounds();
-    const desiredX = bounds.x + moveX;
-    const desiredY = bounds.y + moveY;
-    const next = clampWindow(desiredX, desiredY, bounds.width, bounds.height, objectBox);
-    anchor = { x: next.x + objectBox.pivotX, y: next.y + objectBox.pivotY };
-    expectedPivot = null;
-    expectedMisses = 0;
-    browserWindow.setBounds(next, false);
+    if (anchor === null) anchor = { x: bounds.x + objectAnchor.pivotX, y: bounds.y + objectAnchor.pivotY };
+    const moved = clampWindow(
+      anchor.x + dx - objectAnchor.pivotX,
+      anchor.y + dy - objectAnchor.pivotY,
+      bounds.width,
+      bounds.height,
+      objectAnchor,
+    );
+    anchor = { x: moved.x + objectAnchor.pivotX, y: moved.y + objectAnchor.pivotY };
+    placeToAnchor();
   });
-  ipcMain.on(IpcChannel.setObjectBox, (_event, box: ObjectBox) => {
-    if (!box) return;
-    if (![box.x, box.y, box.width, box.height, box.pivotX, box.pivotY].every(Number.isFinite)) return;
-    if (box.width <= 0 || box.height <= 0) return;
-    const previous = objectBox;
-    objectBox = box;
-    if (expectedPivot !== null) {
-      // A resize lands in the window first and in the renderer a moment later, so
-      // the report in between still carries the old position. Waiting for the one
-      // we predicted keeps that half-finished state from resetting the anchor.
-      if (Math.abs(box.pivotX - expectedPivot.x) < 1 && Math.abs(box.pivotY - expectedPivot.y) < 1) {
-        expectedPivot = null;
-        expectedMisses = 0;
-        return;
-      }
-      expectedMisses += 1;
-      if (expectedMisses < 3) return;
-      expectedPivot = null;
-      expectedMisses = 0;
-    }
+  ipcMain.on(IpcChannel.setObjectAnchor, (_event, next: ObjectAnchor) => {
+    if (!next) return;
+    if (![next.pivotX, next.pivotY, next.reach].every(Number.isFinite)) return;
+    objectAnchor = next;
     if (anchor === null) {
       const bounds = browserWindow.getBounds();
-      anchor = { x: bounds.x + box.pivotX, y: bounds.y + box.pivotY };
+      anchor = { x: bounds.x + next.pivotX, y: bounds.y + next.pivotY };
       return;
     }
-    // Follow the pivot by how far it actually moved. Re-reading the window
-    // position instead would round the anchor off every time, and those
-    // fractions added up into a visible drift.
-    anchor = {
-      x: anchor.x + (box.pivotX - previous.pivotX),
-      y: anchor.y + (box.pivotY - previous.pivotY),
-    };
+    placeToAnchor();
   });
   ipcMain.handle(IpcChannel.getWindowBounds, () => {
     const { x, y } = browserWindow.getBounds();
@@ -347,44 +347,21 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
       const size = overlayWindowSize(overlay.fitSize(nextSize));
       const current = browserWindow.getBounds();
       if (size.width === current.width && size.height === current.height) return;
-      // Everything the renderer draws scales with the window, and it holds the
-      // object at the same fraction of the canvas, so the new box is just the
-      // old one scaled. Predicting it here lets us resize and reposition in a
-      // single step; doing it in two is what made the object jump and snap back.
       const ratioX = size.width / current.width;
       const ratioY = size.height / current.height;
-      // The renderer holds the pivot at a fixed fraction of the canvas, so its
-      // new position is exactly this — which is what lets us resize and move in
-      // one step instead of letting the object jump and be dragged back.
-      const pivotX = objectBox.pivotX * ratioX;
-      const pivotY = objectBox.pivotY * ratioY;
-      const held = anchor ?? { x: current.x + objectBox.pivotX, y: current.y + objectBox.pivotY };
-      const x = held.x - pivotX;
-      const y = held.y - pivotY;
-      // The footprint does not scale quite as cleanly (bob radii are fixed), so
-      // this is only an estimate, used to clamp. The renderer reports the real
-      // one a frame later and any leftover correction goes the usual way.
-      const scaled: ObjectBox = {
-        x: pivotX + (objectBox.x - objectBox.pivotX) * ratioX,
-        y: pivotY + (objectBox.y - objectBox.pivotY) * ratioY,
-        width: objectBox.width * ratioX,
-        height: objectBox.height * ratioY,
-        pivotX,
-        pivotY,
-      };
-      objectBox = scaled;
-      const next = clampWindow(x, y, size.width, size.height, scaled);
-      // If the clamp had to step in, that is a real move and becomes the new anchor.
-      if (next.x !== Math.round(x) || next.y !== Math.round(y)) {
-        anchor = { x: next.x + pivotX, y: next.y + pivotY };
-        expectedPivot = null;
-        expectedMisses = 0;
-      } else {
-        anchor = held;
-        expectedPivot = { x: pivotX, y: pivotY };
-        expectedMisses = 0;
-      }
-      browserWindow.setBounds(next, false);
+      // The renderer holds the pivot at a fixed fraction of the canvas, so this
+      // is where it will end up. Using it now means the window resizes and lands
+      // in its final place in one step, instead of the object jumping and being
+      // dragged back a frame later. The report that follows corrects any drift.
+      const pivotX = objectAnchor.pivotX * ratioX;
+      const pivotY = objectAnchor.pivotY * ratioY;
+      const held = anchor ?? { x: current.x + objectAnchor.pivotX, y: current.y + objectAnchor.pivotY };
+      anchor = held;
+      objectAnchor = { ...objectAnchor, pivotX, pivotY };
+      browserWindow.setBounds(
+        { x: Math.round(held.x - pivotX), y: Math.round(held.y - pivotY), ...size },
+        false,
+      );
     },
     fitSize(size) {
       if (browserWindow.isDestroyed()) return fitSizeToArea(size, primaryWorkArea());
@@ -401,7 +378,7 @@ export function createOverlayWindow(size = WINDOW_WIDTH): OverlayWindow {
     screen.removeListener("display-removed", keepOnDesktop);
     ipcMain.removeAllListeners(IpcChannel.setClickThrough);
     ipcMain.removeAllListeners(IpcChannel.moveWindowBy);
-    ipcMain.removeAllListeners(IpcChannel.setObjectBox);
+    ipcMain.removeAllListeners(IpcChannel.setObjectAnchor);
     ipcMain.removeHandler(IpcChannel.getWindowBounds);
     ipcMain.removeHandler(IpcChannel.getDisplayLayout);
   });

@@ -147,26 +147,21 @@ export class DoublePendulumObject implements DeskObject {
   }
 
   /**
-   * The area the object can swing through, in canvas coordinates.
+   * Where the object hangs, and how far down it reaches before it stops being
+   * something you can grab.
    *
-   * It has to be the swept area, not the resting silhouette: a driven pendulum
-   * reaches a full rod-length in every direction, so clamping only the hanging
-   * shape left it free to swing straight off the side of the display.
+   * `reach` is the first arm: keep that much of the object on the desktop and
+   * the pivot plus the top of the pendulum stay visible and draggable. It is
+   * deliberately not the whole swept area — demanding that pushed the object
+   * around whenever it was resized near an edge, and walled it off from the
+   * neighbouring display entirely.
    */
-  visibleBox(): { x: number; y: number; width: number; height: number; pivotX: number; pivotY: number } {
-    const reach = downwardReach(this.params) * this.scale;
-    const pivotX = this.origin.x;
-    const pivotY = this.origin.y;
-    if (this.params.model === "compound") {
-      const stand = this.standExtents();
-      const { rod, pin } = this.stickRadii();
-      const half = Math.max(stand.halfWidth, reach + pin + rod / 2);
-      const bottom = Math.max(stand.depth, half);
-      return { x: pivotX - half, y: pivotY - half, width: half * 2, height: half + bottom, pivotX, pivotY };
-    }
-    const { pivot, bobs, rod } = this.radii();
-    const half = reach + Math.max(pivot, rod / 2, ...bobs);
-    return { x: pivotX - half, y: pivotY - half, width: half * 2, height: half * 2, pivotX, pivotY };
+  anchorInfo(): { pivotX: number; pivotY: number; reach: number } {
+    const first = jointSpan(this.params, 0) * this.scale;
+    const extra = this.params.model === "compound"
+      ? this.stickRadii().pin
+      : Math.max(...this.radii().bobs);
+    return { pivotX: this.origin.x, pivotY: this.origin.y, reach: first + extra };
   }
 
   consumeWindowShift(): { x: number; y: number } {
