@@ -4,7 +4,7 @@ export const IpcChannel = {
   rendererReady: "renderer-ready",
   setClickThrough: "set-click-through",
   moveWindowBy: "move-window-by",
-  setPivotOffset: "set-pivot-offset",
+  setObjectBox: "set-object-box",
   appState: "app-state",
   getState: "get-state",
   setInteractionMode: "set-interaction-mode",
@@ -22,6 +22,17 @@ export const IpcChannel = {
   benchControl: "bench-control",
   benchResult: "bench-result",
 } as const;
+
+/** The object's footprint inside the window, in canvas pixels. */
+export interface ObjectBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** The pivot, which the renderer holds at a fixed fraction of the canvas. */
+  pivotX: number;
+  pivotY: number;
+}
 
 export interface WindowOrigin {
   x: number;
@@ -46,8 +57,8 @@ export interface DeskApi {
   getState: () => Promise<AppState>;
   setClickThrough: (ignore: boolean) => void;
   moveWindowBy: (dx: number, dy: number) => void;
-  /** Where the grabbable pivot sits inside the window, so the main process can keep it reachable. */
-  setPivotOffset: (x: number, y: number) => void;
+  /** What the object covers inside the window, so the main process can keep it on screen. */
+  setObjectBox: (box: ObjectBox) => void;
   updatePhysics: (physics: Partial<PhysicsSettings>) => void;
   setMotionMode: (mode: AppState["motionMode"]) => void;
   setTrails: (enabled: boolean) => void;

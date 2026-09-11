@@ -99,8 +99,9 @@ export class DoublePendulumObject implements DeskObject {
   private windowShift = { x: 0, y: 0 };
 
   layout(width: number, height: number): void {
-    const keepAnchor = this.placed;
-    const anchor = keepAnchor ? this.canvasAnchor() : null;
+    const previous = this.canvasSize;
+    const resized = this.placed && previous.width > 0 && previous.height > 0
+      && (previous.width !== width || previous.height !== height);
     this.canvasSize = { width, height };
     this.updateScale();
     if (!this.placed) {
@@ -111,10 +112,17 @@ export class DoublePendulumObject implements DeskObject {
         y: sticks ? height * 0.38 : height * 0.22,
       });
       this.placed = true;
-    } else if (anchor) {
-      this.placeOriginAtAnchor(anchor);
+    } else if (resized) {
+      // The window and everything drawn in it scale together, so holding the
+      // object at the same fraction of the canvas keeps it still on screen and
+      // leaves nothing for the main process to correct afterwards. Correcting
+      // it in a second step is what made the object jump and snap back.
+      this.moveOrigin({
+        x: this.origin.x * (width / previous.width),
+        y: this.origin.y * (height / previous.height),
+      });
     }
-    this.fitOriginOnCanvas(keepAnchor);
+    this.fitOriginOnCanvas();
   }
 
   applyPhysics(physics: PhysicsSettings): void {
@@ -136,6 +144,29 @@ export class DoublePendulumObject implements DeskObject {
     if (countChanged || styleChanged) {
       this.reset();
     }
+  }
+
+  /**
+   * The area the object can swing through, in canvas coordinates.
+   *
+   * It has to be the swept area, not the resting silhouette: a driven pendulum
+   * reaches a full rod-length in every direction, so clamping only the hanging
+   * shape left it free to swing straight off the side of the display.
+   */
+  visibleBox(): { x: number; y: number; width: number; height: number; pivotX: number; pivotY: number } {
+    const reach = downwardReach(this.params) * this.scale;
+    const pivotX = this.origin.x;
+    const pivotY = this.origin.y;
+    if (this.params.model === "compound") {
+      const stand = this.standExtents();
+      const { rod, pin } = this.stickRadii();
+      const half = Math.max(stand.halfWidth, reach + pin + rod / 2);
+      const bottom = Math.max(stand.depth, half);
+      return { x: pivotX - half, y: pivotY - half, width: half * 2, height: half + bottom, pivotX, pivotY };
+    }
+    const { pivot, bobs, rod } = this.radii();
+    const half = reach + Math.max(pivot, rod / 2, ...bobs);
+    return { x: pivotX - half, y: pivotY - half, width: half * 2, height: half * 2, pivotX, pivotY };
   }
 
   consumeWindowShift(): { x: number; y: number } {

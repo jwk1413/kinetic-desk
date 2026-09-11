@@ -88,9 +88,9 @@ function makeRig(displays) {
   const overlay = wm.createOverlayWindow(700);
   const win = overlay.browserWindow;
   const moveWindowBy = (dx, dy) => handlers.get('move-window-by')(null, dx, dy);
-  const reportPivot = () => {
-    const fn = handlers.get('set-pivot-offset');
-    if (fn) fn(null, Math.round(object.origin.x), Math.round(object.origin.y));
+  const reportBox = () => {
+    const fn = handlers.get('set-object-box');
+    if (fn) fn(null, object.visibleBox());
   };
 
   const object = new DoublePendulumObject();
@@ -102,7 +102,7 @@ function makeRig(displays) {
   // because the main process clamps that move against the pivot.
   const flush = () => {
     const shift = object.consumeWindowShift();
-    reportPivot();
+    reportBox();
     if (shift.x !== 0 || shift.y !== 0) moveWindowBy(shift.x, shift.y);
   };
   flush();
@@ -115,10 +115,26 @@ function makeRig(displays) {
       return displays.some(({ workArea: w }) => p.x >= w.x && p.x <= w.x + w.width
         && p.y >= w.y && p.y <= w.y + w.height);
     },
+    /** The swept area of the object, in screen coordinates. */
+    box() {
+      const b = object.visibleBox();
+      return { x: win.bounds.x + b.x, y: win.bounds.y + b.y, width: b.width, height: b.height };
+    },
+    /** True when every part the object can swing through is on one display. */
+    fullyVisible() {
+      const r = rig.box();
+      return displays.some(({ workArea: w }) => {
+        // Nothing to promise when the object is bigger than the display itself.
+        if (r.width > w.width || r.height > w.height) {
+          return r.x + r.width > w.x && r.x < w.x + w.width && r.y + r.height > w.y && r.y < w.y + w.height;
+        }
+        return r.x >= w.x && r.x + r.width <= w.x + w.width && r.y >= w.y && r.y + r.height <= w.y + w.height;
+      });
+    },
     sync() { object.layout(win.bounds.width, win.bounds.height); flush(); },
     drag(dx, dy) {
       const overflow = object.shiftBy(dx, dy);
-      reportPivot();
+      reportBox();
       if (overflow.x !== 0 || overflow.y !== 0) moveWindowBy(overflow.x, overflow.y);
     },
     setStyle(style) { physics = clampPhysics({ ...physics, style }); object.applyPhysics(physics); flush(); },
@@ -132,6 +148,17 @@ function makeRig(displays) {
     },
   };
   return rig;
+}
+
+/** Window bounds are whole pixels, so a step may round by one; it must not add up. */
+function assertSteady(samples, anchor, what) {
+  for (const axis of ['x', 'y']) {
+    const values = samples.map((p) => p[axis]);
+    const spread = Math.max(...values) - Math.min(...values);
+    const strayed = Math.max(...values.map((v) => Math.abs(v - anchor[axis])));
+    assert(spread <= 1, `${what}: ${axis}가 ${spread}px 밀림`);
+    assert(strayed <= 1, `${what}: ${axis}가 원래 자리에서 ${strayed}px 벗어남`);
+  }
 }
 
 const DISPLAYS = [
@@ -172,46 +199,64 @@ for (const [label, displays] of DISPLAYS) {
 for (const [label, displays] of DISPLAYS) {
   const rig = makeRig(displays);
   const before = rig.pivot();
-  for (let i = 0; i < 16; i += 1) rig.setSize(SIZES[i % SIZES.length]);
-  assert.deepEqual(rig.pivot(), before, `${label}: 창 크기를 바꾸면 고정점이 이동함`);
+  const seen = [];
+  for (let i = 0; i < 24; i += 1) { rig.setSize(SIZES[i % SIZES.length]); seen.push(rig.pivot()); }
+  assertSteady(seen, before, `${label}: 창 크기를 바꾸면 고정점이 이동함`);
 }
 
 // 4. Interleaving both settles instead of ratcheting, and never escapes.
 for (const [label, displays] of DISPLAYS) {
   const rig = makeRig(displays);
   let settled = null;
+  const tail = [];
   for (let i = 1; i <= 240; i += 1) {
     if (i % 3 === 0) rig.setStyle(i % 2 ? 'bobs' : 'sticks');
     else rig.setSize(SIZES[i % SIZES.length]);
     assert(rig.onScreen(), `${label}: ${i}회째 조작에서 고정점이 화면을 벗어남`);
     if (i === 60) settled = rig.pivot();
+    if (i > 60) tail.push(rig.pivot());
   }
-  assert.deepEqual(rig.pivot(), settled, `${label}: 형태·크기를 섞어 바꾸면 위치가 계속 밀림`);
+  assertSteady(tail, settled, `${label}: 형태·크기를 섞어 바꾸면 위치가 계속 밀림`);
 }
 
-// 5. Pushing the object hard against an edge and then enlarging must not strand it.
+// 5. Parked against an edge, enlarging must keep the whole swing on screen. The
+// object does move here, and should: a bigger pendulum needs more room, so it
+// gets pushed further in. What must not happen is it leaving the screen, or
+// creeping further every time the same sizes come round again.
 for (const [label, displays] of DISPLAYS) {
   for (const [corner, dx, dy] of CORNERS) {
     const rig = makeRig(displays);
     rig.drag(dx, dy);
-    const parked = rig.pivot();
-    // Hard against the edge the pivot can sit a pixel either way, because the
-    // renderer reports it rounded to whole pixels. That must stay a wobble:
-    // bounded, and never trending away from where the object was parked.
-    const seen = [];
-    for (const size of [900, 1100, 700, 1100, 500, 900, 1100, 500, 700]) {
-      rig.setSize(size);
-      const now = rig.pivot();
-      assert(rig.onScreen(), `${label} ${corner}: 가장자리에서 크기를 ${size}px로 바꾸니 고정점이 화면을 벗어남 ${JSON.stringify(now)}`);
-      seen.push(now);
+    assert(rig.fullyVisible(), `${label} ${corner}: 가장자리로 끌면 오브제 일부가 화면 밖에 남음`);
+    // Growing pushes the object in off the edge; shrinking leaves it where it
+    // is rather than flinging it back into the corner. So the first pass moves
+    // it, and every pass after that must land in exactly the same places.
+    const bySize = new Map();
+    for (let cycle = 0; cycle < 4; cycle += 1) {
+      for (const size of SIZES) {
+        rig.setSize(size);
+        assert(rig.fullyVisible(), `${label} ${corner}: ${size}px로 키우니 오브제가 화면 밖으로 나감`);
+        if (cycle === 0) continue;
+        const here = rig.pivot();
+        if (cycle === 1) bySize.set(size, here);
+        else assert.deepEqual(here, bySize.get(size), `${label} ${corner}: ${size}px로 돌아왔는데 자리가 달라짐`);
+      }
     }
-    const spread = (axis) => Math.max(...seen.map((p) => p[axis])) - Math.min(...seen.map((p) => p[axis]));
-    const strayed = (axis) => Math.max(...seen.map((p) => Math.abs(p[axis] - parked[axis])));
-    for (const axis of ['x', 'y']) {
-      assert(spread(axis) <= 2,
-        `${label} ${corner}: 가장자리에서 크기를 반복해 바꾸면 고정점 ${axis}가 ${spread(axis)}px 밀림`);
-      assert(strayed(axis) <= 2,
-        `${label} ${corner}: 가장자리에서 크기를 바꾸니 고정점 ${axis}가 놓아둔 자리에서 ${strayed(axis)}px 벗어남`);
+  }
+}
+
+// 6. The same, for both shapes: a hanging pendulum sweeps far wider than it
+// looks at rest, which is how it used to swing off the edge of the display.
+for (const [label, displays] of DISPLAYS) {
+  for (const style of ['bobs', 'sticks']) {
+    for (const [corner, dx, dy] of CORNERS) {
+      const rig = makeRig(displays);
+      rig.setStyle(style);
+      rig.drag(dx, dy);
+      for (const size of SIZES) {
+        rig.setSize(size);
+        assert(rig.fullyVisible(), `${label} ${style} ${corner}: ${size}px에서 오브제가 화면 밖으로 나감`);
+      }
     }
   }
 }

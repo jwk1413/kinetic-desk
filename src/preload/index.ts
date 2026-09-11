@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import { IpcChannel, type DeskApi, type DisplayLayout, type WindowOrigin } from "../shared/ipc";
+import { IpcChannel, type DeskApi, type DisplayLayout, type ObjectBox, type WindowOrigin } from "../shared/ipc";
 import type { AppState, MotionMode, PhysicsSettings } from "../shared/types";
 
 const api: DeskApi = {
@@ -15,8 +15,8 @@ const api: DeskApi = {
   moveWindowBy(dx: number, dy: number) {
     ipcRenderer.send(IpcChannel.moveWindowBy, dx, dy);
   },
-  setPivotOffset(x: number, y: number) {
-    ipcRenderer.send(IpcChannel.setPivotOffset, x, y);
+  setObjectBox(box: ObjectBox) {
+    ipcRenderer.send(IpcChannel.setObjectBox, box);
   },
   updatePhysics(physics: Partial<PhysicsSettings>) {
     ipcRenderer.send(IpcChannel.updatePhysics, physics);

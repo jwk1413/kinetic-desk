@@ -106,27 +106,36 @@ function applyWindowShift(): void {
   const shift = primary().consumeWindowShift();
   // Report first: the main process clamps the move against the pivot, so it
   // needs the position the object has *already* settled into.
-  pushPivotOffset();
+  pushObjectBox();
   if (shift.x !== 0 || shift.y !== 0) desk?.moveWindowBy(shift.x, shift.y);
 }
 
-let lastPivotOffset = { x: -1, y: -1 };
+let lastBox = { x: -1, y: -1, width: -1, height: -1, pivotX: -1, pivotY: -1 };
 
 /**
- * Tells the main process where the pivot sits inside the window so it can keep
- * that point on screen. Without it the window clamp only knows the window, and
- * the object can be dragged or resized clean off the desktop.
+ * Tells the main process what the object covers inside the window so it can keep
+ * that area on screen. The window clamp on its own only knows the window, which
+ * is mostly empty space — the object could be dragged or resized off the desktop
+ * while the window still technically overlapped it.
  */
-function pushPivotOffset(): void {
+function pushObjectBox(): void {
   if (!desk) return;
-  const origin = primary()?.origin;
-  if (!origin) return;
-  const { x, y } = origin;
-  const nextX = Math.round(x);
-  const nextY = Math.round(y);
-  if (nextX === lastPivotOffset.x && nextY === lastPivotOffset.y) return;
-  lastPivotOffset = { x: nextX, y: nextY };
-  desk.setPivotOffset(nextX, nextY);
+  const object = primary();
+  if (!object) return;
+  const box = object.visibleBox();
+  const next = {
+    x: Math.round(box.x),
+    y: Math.round(box.y),
+    width: Math.round(box.width),
+    height: Math.round(box.height),
+    pivotX: box.pivotX,
+    pivotY: box.pivotY,
+  };
+  if (next.x === lastBox.x && next.y === lastBox.y
+    && next.width === lastBox.width && next.height === lastBox.height
+    && next.pivotX === lastBox.pivotX && next.pivotY === lastBox.pivotY) return;
+  lastBox = next;
+  desk.setObjectBox(next);
 }
 
 function pointer(event: PointerEvent | MouseEvent): { x: number; y: number } {
@@ -258,7 +267,7 @@ function onPointerMove(event: PointerEvent): void {
     const dy = event.screenY - lastScreen.y;
     if (dx !== 0 || dy !== 0) {
       const overflow = primary().shiftBy(dx, dy);
-      pushPivotOffset();
+      pushObjectBox();
       if (overflow.x !== 0 || overflow.y !== 0) desk?.moveWindowBy(overflow.x, overflow.y);
     }
   }
@@ -418,7 +427,7 @@ canvas.addEventListener("contextmenu", (event) => event.preventDefault());
 window.addEventListener("kinetic-reset", () => {
   cancelPointerDrag();
   for (const object of objects) object.reset();
-  pushPivotOffset();
+  pushObjectBox();
   hovered = null;
   hoverObject = null;
   syncClickThrough(false);
