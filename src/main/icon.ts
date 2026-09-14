@@ -1,5 +1,5 @@
 import { deflateSync } from "node:zlib";
-import { nativeImage, type NativeImage } from "electron";
+import { nativeImage, nativeTheme, type NativeImage } from "electron";
 
 function createPng(width: number, height: number, paint: (x: number, y: number) => number, rgb = [0, 0, 0]): Buffer {
   const raw = Buffer.alloc(height * (width * 4 + 1));
@@ -69,7 +69,11 @@ function capsule(x: number, y: number, x1: number, y1: number, x2: number, y2: n
 
 export function createTrayIcon(): NativeImage {
   const size = 18;
-  const light = process.platform !== "darwin";
+  // macOS takes a template image and inverts it against the menu bar itself.
+  // Everywhere else we have to pick a colour, and picking one fixed colour left
+  // the icon nearly invisible on a light Windows taskbar — which hides the only
+  // way into the app, since the window has no controls of its own.
+  const light = process.platform !== "darwin" && nativeTheme.shouldUseDarkColors;
   const png = createPng(
     size,
     size,

@@ -1,4 +1,4 @@
-import { Menu, Tray, type BrowserWindow } from "electron";
+import { Menu, Tray, app, nativeTheme, type BrowserWindow } from "electron";
 import {
   GLOBAL_TOGGLE_ACCELERATOR,
   type AppState,
@@ -69,6 +69,14 @@ export function createAppTray(
   const tray = new Tray(createTrayIcon());
   tray.setToolTip("키네틱 데스크");
   if (process.platform === "darwin") tray.setTitle("키네틱");
+
+  // Redraw when the system flips between light and dark, so the icon does not
+  // end up the same colour as the bar it sits in.
+  const repaintIcon = () => {
+    if (!tray.isDestroyed()) tray.setImage(createTrayIcon());
+  };
+  nativeTheme.on("updated", repaintIcon);
+  app.on("before-quit", () => nativeTheme.removeListener("updated", repaintIcon));
 
   /**
    * A submenu of radio items whose parent shows the current value, so the whole
